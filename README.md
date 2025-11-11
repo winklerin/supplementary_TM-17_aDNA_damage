@@ -14,7 +14,7 @@ The resulting contis were taxonomically annotated using a custom nextflow pipeli
 The selection based on taxonomic annotation, prevalence and abundance in the stalagmite data and read coverage is documented in 
 
 ## aDNA damage inference
-Using a custom nextflow pipeline we determined damage parameters related to fragment length and cytosine deamination. Samplesheets and makefiles are provided for the 
+Using a custom nextflow pipeline we determined damage parameters related to fragment length and cytosine deamination. Samplesheets and makefiles are provided for the subsets of organisms used for creation and testing of age-damage-models.
 Aggregation of the output data into one data frame is documented in 
 
 ## Statistical analysis and visualization
