@@ -1,0 +1,24 @@
+nf-core-mag:
+	nextflow run nf-core/mag -r 3.0.3 \
+	-profile eva,archgen,java_fix \
+	-c javafix.config \
+	--input ../data/2024-09-23_samplesheet_shortened.csv \
+	--outdir results_full_dataset \
+	--reads_minlength 30 \
+	--bbnorm \
+	--igenomes_base /home/maxime_borry/00_archgen/00_jena_archive/04_genomes \
+	--host_genome GRCh38 \
+	--skip_spades \
+	--coassemble_group \
+	--refine_bins_dastool \
+	--ancient_dna \
+	--skip_prokka \
+	--binning_map_mode group \
+	--busco_db "/r1/people/maxime_borry/02_db/busco_downloads" \
+	--run_gunc \
+	--gunc_db /r1/people/maxime_borry/02_db/gunc/gunc_db_progenomes2.1.dmnd \
+	--postbinning_input both \
+	--gtdb_db /home/maxime_borry/02_db/gtdb/r207/gtdbtk_r207_v2_data.tar.gz \
+	--run_virus_identification \
+	--save_assembly_mapped_reads \
+	-resume
