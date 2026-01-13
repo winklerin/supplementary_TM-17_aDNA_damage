@@ -1,0 +1,1 @@
+The selfmade nextflow pipeline nf-mmseqs was used for contig taxonomic annotation. https://github.com/winklerin/nf-mmseqs

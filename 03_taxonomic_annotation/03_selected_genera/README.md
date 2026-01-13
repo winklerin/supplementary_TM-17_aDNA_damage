@@ -1,0 +1,3 @@
+This notebook documents the selection of core genera (used for modelling of age damage relationship) and test genera (used for model testing). 
+
+ For both groups it generates genomes.csv and bams.csv as samplesheets for the damage inference (see 04_damage_inference). Also it extracts the contigs with the selected taxonomic annotation into .fa files. File paths are not changed to run the notebook directly.
