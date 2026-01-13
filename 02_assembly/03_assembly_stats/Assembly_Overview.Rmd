@@ -1,0 +1,124 @@
+---
+title: "Assembly Overview"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+```{r}
+library(tidyverse)
+library(patchwork)
+```
+
+I'm aggregating the QUAST output of the assemblies of the different layers
+
+# 1. Loading data
+```{r}
+names=sort(list.files('./input/nf-coreMAG/Assembly/MEGAHIT/QC/'))
+```
+```{r}
+data_list <- lapply(names, function(file) {
+  read.csv(paste0('./input/nf-coreMAG/Assembly/MEGAHIT/QC/',file,'/QUAST/report.tsv'), sep = "\t", header = TRUE, row.names = 1, check.names = FALSE)
+})
+```
+```{r}
+data = Reduce(function(x, y) cbind(x, y), data_list) %>% mutate(TDM009 = 0) %>% t() %>% data.frame() %>% dplyr::select(-all_of("X..predicted.rRNA.genes" )) %>%  mutate(across(everything(), as.numeric))
+```
+```{r}
+# Fixing the column names
+name_dict=c(
+X..contigs.....0.bp.= "nb_contig_min_0_bp",
+X..contigs.....1000.bp.  = "nb_contigs_min_1000_bp",
+X..contigs.....5000.bp. = "nb_contigs_min_5000_bp",
+X..contigs.....10000.bp. = "nb_contigs_min_10000_bp",
+X..contigs.....25000.bp.  = "nb_contigs_min_25000_bp",
+X..contigs.....50000.bp.= "nb_contigs_min_50000_bp",
+Total.length.....0.bp.    = "Total_length_gt_0_bp",
+Total.length.....1000.bp.  = "Total_length_gt_1000_bp",
+Total.length.....5000.bp. = "Total_length_gt_5000_bp",
+Total.length.....10000.bp. = "Total_length_gt_10000_bp",
+Total.length.....25000.bp. = "Total_length_gt_25000_bp",
+Total.length.....50000.bp. = "Total_length_gt_50000_bp",
+X..contigs  = "nb_contigs",
+Largest.contig  =    "Largest_contig",    
+Total.length    =      "Total_length",  
+GC....           =     "GC_perc",	
+N50               =     "N50",  
+N75                =    "N75",   
+L50                 =   "L50",	    
+L75                  =   "L75",   
+X..N.s.per.100.kbp    = "nb_Ns_per_100_kbp")
+
+colnames(data)[colnames(data) %in% names(name_dict)] <-
+  name_dict[colnames(data)[colnames(data) %in% names(name_dict)]]
+```
+```{r}
+write.table(data, './output/assembly_stats.csv', quote = F, row.names = F)
+```
+
+```{r}
+summary(data[10:70,])
+```
+
+# 2. Plots
+```{r}
+data_long <- data %>% 
+  mutate(sample=rownames(data)) %>%  
+  mutate(sample = str_remove(sample, "^MEGAHIT-group-")) %>% 
+  mutate(category=(case_when(
+    str_starts(sample, "EXB") ~ "EXB",
+    str_starts(sample, "TDM") ~ "TDM",
+    TRUE ~ NA_character_  # for any other cases
+  ))) %>% 
+  pivot_longer(cols= -c(sample, category))
+```
+
+```{r}
+desired_order=paste0(rep('TDM0', times=61), c('01','02','03','04','05','06', '07', '08', '09', as.character(10:61)))
+```
+```{r,fig.height=5, fig.width=1.5}
+data_long$depth_cm <- as.numeric(sub("TDM0*", "", data_long$sample))
+p1= data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='TDM',] %>% 
+  ggplot(aes(y=depth_cm-0.5, x=value))+
+   geom_segment( aes(y=depth_cm-0.5, yend=depth_cm-0.5, x=data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='EXB',]$value %>% max(), xend=value), color="grey40") +
+  geom_point( color="grey40", size=1.5)+
+  geom_vline(xintercept = data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='EXB',]$value %>% max(), color='darkred')+
+   scale_y_reverse( breaks = seq(1, 61, 1), labels=ifelse(1:61 %% 5 == 0, 1:61, ""), limits = c(61,0),expand = c(0, 0))+
+  theme_classic(base_size = 9)+
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.8, hjust = 1), 
+        axis.ticks.length = unit(0.1, "cm"),
+        panel.grid.major = element_line(color = "grey90")) +
+  ylab('Depth from top (cm)')+
+  xlab('Assembly length (bp)')
+p1
+```
+```{r}
+ggsave('../../06_figures/Fig1/E.pdf', height = 5, width=1.5, units = 'in')
+```
+
+```{r, fig.height=2.5, fig.width=1.2}
+p2=data_long[data_long$name %in% c('L50') & data_long$category=='TDM',] %>% ggplot(aes(x=category, y=value))+
+  geom_boxplot()+
+  geom_jitter(width=0.5, color='gray40', size=1)+
+  theme_bw(base_size = 9)+
+  xlab('L50\n(#contigs)')+
+  ylab('')+
+  theme(axis.text.x = element_blank())
+p2
+ggsave('../../06_figures/Fig1/F.pdf', height=2.5, width=1.2, units = 'in')
+saveRDS(p2, '../../06_figures/Fig1/F.rds')
+```
+
+```{r, fig.height=2.5, fig.width=1.2}
+p3=data_long[data_long$name %in% c('N50') & data_long$category=='TDM',] %>% ggplot(aes(x=category, y=value))+
+  geom_boxplot()+
+  geom_jitter(width=0.5 , color='gray40', size=1)+
+  theme_bw(base_size = 9)+
+  xlab('N50 (bp)')+
+  ylab('')+
+  theme(axis.text.x = element_blank())
+p3 
+ggsave('../../06_figures/Fig1/G.pdf', height=2.5, width=1.2, units = 'in')
+saveRDS(p3, '../../06_figures/Fig1/G.rds')
+```
+
+

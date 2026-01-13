@@ -1,0 +1,86 @@
+---
+title: "Summarizing the age model"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+Kathleen Johnson provided us with an age model for the stalagmite. The stalagmite was dated every 0.25 mm. As our subsamples were collected at ~1cm intervals, I need to summarize the age data
+# packages
+```{r}
+library(tidyverse)
+packageVersion('tidyverse')
+
+```
+
+
+# load age model
+```{r}
+age_model_RAW=read.csv2('./input/TM17_Age_Model.csv', skip=3, col.names = c('mm_from_top', 'cm_from_top', 'age_yrs_bf_1950', 'age_yrs_bf_1950_upper_CI', 'age_yrs_bf_1950_lower_CI')) %>% filter(if_any(everything(), ~ !is.na(.x)))
+```
+# load rock cube intervals
+The length of the rock cubes was measured from calibrated images in imageJ and rounded to multiples of 0.25cm. We have mostly 1cm intervals with a few exceptions.
+```{r}
+intervals=read.csv('./input/Rock_Cube_Sizes_from_imageJ.csv', sep=';')
+```
+Because of the rounding the intervals reach just to 60.5 cm. I'm setting the lower boundary of the bottom subsample to the oldest layer of the age model to cover the whole age model.
+```{r}
+intervals[intervals$DFT==max(intervals$DFT),'DFT']=age_model_RAW[age_model_RAW$cm_from_top==max(age_model_RAW$cm_from_top),'cm_from_top']
+```
+
+
+# overview plot
+```{r,fig.height=5, fig.width=1.7}
+p=ggplot(age_model_RAW)+
+  geom_line(aes(y=cm_from_top, x=age_yrs_bf_1950_lower_CI, color='95% CI'))+
+  geom_line(aes(y=cm_from_top, x=age_yrs_bf_1950_upper_CI, color='95% CI'))+
+  geom_line(aes(y=cm_from_top, x=age_yrs_bf_1950, color='COPRA Model'))+
+  theme_classic(base_size = 9)+
+  theme(legend.position = 'inside', legend.background=element_blank(),legend.position.inside = c(0.45,0.1),axis.text.x = element_text(angle = 30, vjust = 0.8, hjust = 1), 
+        axis.ticks.length = unit(0.1, "cm"))+
+  xlab('Age (Years BP)')+
+  ylab('Depth from Top (cm)')+
+   scale_color_manual(name = "",
+    values = c( 'COPRA Model' = "black","95% CI" = "darkred")
+  )+
+  scale_x_continuous(expand = c(0, 0), limits = c(0, NA)) +
+  scale_y_reverse(expand = c(0, 0),breaks = seq(1, 61, 1), labels=ifelse(1:61 %% 5 == 0, 1:61, ""),limits=c(61,0)) 
+p
+```
+```{r}
+ggsave('../../06_figures/Fig1/D.pdf', height = 5, width = 1.7, units = "in")
+saveRDS(p, '../../06_figures/Fig1/D.rds')
+```
+
+# summarize age model
+I summarized the age model for each of the length intervals the rock cubes cover. I ignored the confidence intervals of the COPRA model.
+Finally I added a column with the TDM sample names and merged with the length intervals.
+
+```{r}
+age_model_summarized=age_model_RAW %>%
+  mutate(dft_interval = cut(cm_from_top, breaks = c(0,intervals$DFT), right = TRUE)) %>%
+  group_by(dft_interval) %>%
+  summarise(
+    min_age_yrs_bf_1950    = min(age_yrs_bf_1950,    na.rm = TRUE),
+    max_age_yrs_bf_1950    = max(age_yrs_bf_1950,    na.rm = TRUE),
+    mean_age_yrs_bf_1950   = mean(age_yrs_bf_1950,   na.rm = TRUE),
+    median_age_yrs_bf_1950 = median(age_yrs_bf_1950, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  mutate(sample_name = sprintf("TDM%03d", c(1:61))) %>% 
+  merge(intervals, by.x='sample_name', by.y='X')
+```
+
+
+# save summarized age model
+```{r}
+write.table(age_model_summarized, './output/2025-11-26_summarized_age_model.csv', quote = F, row.names = F)
+```
+
+# Some statistics on the age intervals
+```{r}
+summary(age_model_summarized$max_age_yrs_bf_1950-age_model_summarized$min_age_yrs_bf_1950)
+```
+
+
+
+

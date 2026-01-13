@@ -1,0 +1,23 @@
+Assembly	MEGAHIT-group-TDM041
+# contigs (>= 0 bp)	19331
+# contigs (>= 1000 bp)	3664
+# contigs (>= 5000 bp)	485
+# contigs (>= 10000 bp)	125
+# contigs (>= 25000 bp)	14
+# contigs (>= 50000 bp)	0
+Total length (>= 0 bp)	18227614
+Total length (>= 1000 bp)	10718742
+Total length (>= 5000 bp)	4433468
+Total length (>= 10000 bp)	2020313
+Total length (>= 25000 bp)	437191
+Total length (>= 50000 bp)	0
+# contigs	8997
+Largest contig	38345
+Total length	14345155
+GC (%)	58.71
+N50	2402
+N75	991
+L50	1300
+L75	3705
+# N's per 100 kbp	0.00
+# predicted rRNA genes	4 + 1 part

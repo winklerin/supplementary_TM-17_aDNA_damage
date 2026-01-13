@@ -1,0 +1,23 @@
+Assembly	MEGAHIT-group-EXB080_A0901
+# contigs (>= 0 bp)	7063
+# contigs (>= 1000 bp)	104
+# contigs (>= 5000 bp)	10
+# contigs (>= 10000 bp)	1
+# contigs (>= 25000 bp)	0
+# contigs (>= 50000 bp)	0
+Total length (>= 0 bp)	2530167
+Total length (>= 1000 bp)	229405
+Total length (>= 5000 bp)	68901
+Total length (>= 10000 bp)	11263
+Total length (>= 25000 bp)	0
+Total length (>= 50000 bp)	0
+# contigs	596
+Largest contig	11263
+Total length	540186
+GC (%)	49.56
+N50	854
+N75	592
+L50	149
+L75	347
+# N's per 100 kbp	0.00
+# predicted rRNA genes	0 + 1 part
