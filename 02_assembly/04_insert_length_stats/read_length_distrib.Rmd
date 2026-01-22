@@ -1,0 +1,95 @@
+---
+title: "Read Length Histograms TM-17"
+output: html_notebook
+---
+
+# Packages
+```{r}
+library(jsonlite)
+packageVersion('jsonlite')
+library(tidyverse)
+packageVersion('tidyverse')
+library(ggridges)
+packageVersion('ggridges')
+```
+#Function
+```{r}
+read_fastp_insert_sizes <- function(base_dir) {
+  # Find all fastp JSON files recursively
+  json_files <- list.files(path = base_dir, pattern = "fastp\\.json$", 
+                           recursive = TRUE, full.names = TRUE)
+  
+  # Initialize empty list to store data frames
+  all_data <- list()
+  
+  for (file in json_files) {
+    # Extract sample name from filename or parent directory
+    sample_name <- basename(file)
+    
+    # Read JSON
+    data <- fromJSON(file)
+    
+    # Extract histogram
+    counts <- data$insert_size$histogram
+    
+    # Create data frame
+    df <- data.frame(
+      insert_size = seq_along(counts),
+      count = counts,
+      sample = sample_name
+    )
+    
+    # Append to list
+    all_data[[length(all_data) + 1]] <- df
+  }
+  
+  # Combine all into a single data frame
+  combined_df <- bind_rows(all_data)
+  
+  return(combined_df)
+}
+```
+# Extract Insert Size Histogram values from fastp output
+```{r}
+basedir="./input"
+```
+
+```{r}
+
+# Example usage
+insert_df <- read_fastp_insert_sizes(basedir)
+
+# Inspect the first few rows
+head(insert_df)
+```
+
+
+```{r, fig.height=15 , fig.width=3}
+# 1. Filter out zero counts (optional, cleaner plot)
+insert_df_filtered <- insert_df %>% filter(count > 0,grepl("^TDM", sample),insert_size >20) %>% 
+   mutate(DFT = as.numeric(str_extract(sample, "(?<=TDM)\\d+")))
+
+
+# 2. Normalize so that the maximum (mode) per sample is 1
+insert_df_norm <- insert_df_filtered %>%
+  group_by(sample) %>%
+  mutate(count_norm = count / max(count)) %>%
+  ungroup()
+```
+```{r, fig.width=2, fig.height=5}
+p5=ggplot() +
+  geom_ridgeline(data=insert_df_norm, aes(x = insert_size, y = DFT-0.5, height = count_norm, group = sample), alpha = 0, scale = 3, color='gray40', linewidth=0.3) +
+  geom_ridgeline(data=insert_df_norm[insert_df_norm$DFT %in% c(1,11,21,31,41,51,61),], aes(x = insert_size, y = DFT-0.5, height = count_norm, group = sample), fill='darkred',alpha = 0.3, scale = 3, color='darkred') +
+  labs(x = "Insert Size (bp)", y = "Depth from Top (cm)") +
+  theme_classic(base_size=9) +
+  theme(legend.position = "none")+
+  scale_y_reverse(breaks = seq(1, 61, 1), labels=ifelse(1:61 %% 5 == 0, 1:61, ""), limits = c(61,-3), expand=c(0,0))
+p5
+```
+```{r}
+ggsave('../../06_figures/Fig1/X.pdf', height=5, width=2, units = 'in')
+saveRDS(p5, '../../06_figures/Fig1/X.rds')
+```
+
+
+
