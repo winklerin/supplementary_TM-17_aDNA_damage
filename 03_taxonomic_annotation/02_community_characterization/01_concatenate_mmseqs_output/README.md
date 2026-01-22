@@ -1,0 +1,1 @@
+This notebook runs on the mmseqs output folder of the nf-mmseqs pipeline (https://github.com/winklerin/nf-mmseqs) and uses the pydamage output from nf-core/MAG.

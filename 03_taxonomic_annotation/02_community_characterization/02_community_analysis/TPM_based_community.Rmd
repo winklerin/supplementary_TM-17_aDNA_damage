@@ -1,0 +1,252 @@
+---
+title: "TPM based community structure of stalagmite TM-17"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+In this notebook I run and visualize a PCA on the taxonomic composition of the TM-17 aDNA assemblies and extraction 
+# 1. Preparations
+```{r}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+getwd()  # check it worked
+```
+
+## 1.1 Loading packages
+```{r}
+library(tidyverse)
+packageVersion('tidyverse')
+library(vegan)
+packageVersion('vegan')
+library(ggrepel)
+packageVersion('ggrepel')
+library(patchwork)
+packageVersion('patchwork')
+```
+## 1.2 Loading data (prepared in python)
+```{r}
+data=read.csv("../01_concatenate_mmseqs_output/2025-10-07_contig_tax_tpm.csv", sep=';')
+```
+
+
+# 2 PCA of community composition (based on taxonomic identifier)
+## 2.1 Taxon abundance table
+```{r}
+taxa_wide= data %>% group_by(sample, taxon) %>% summarize(summed_TPM=sum(tpm))%>% mutate(across(where(is.character), ~ifelse(. == "", "unclassified", .)))%>% pivot_wider(names_from = taxon, values_from = summed_TPM, values_fill = 0,values_fn = sum) %>% mutate(across(where(is.numeric), ~replace_na(., 0))) %>% ungroup() %>% as.data.frame()
+
+rownames(taxa_wide)=taxa_wide[,1]
+taxa_wide=taxa_wide[,-1]
+```
+
+## 2.2 PCA on Hellinger-transformed abundances
+```{r}
+tax.pca <- rda(decostand(taxa_wide, method = "hell"))
+tax.pca
+```
+```{r, fig.height=4, fig.width=4}
+tax_var=sprintf("%.1f %%", tax.pca$CA$eig/tax.pca$tot.chi*100)
+tax_var
+
+df <- as.data.frame(scores(tax.pca)$sites) %>% rownames_to_column("Sample") %>%
+  mutate(sample_type = substr(Sample, 1, 3))
+```
+
+## 2.3 Plot PCA Biplot
+```{r}
+pca_plot=ggplot(df, aes(x = PC1, y = PC2, color = sample_type)) +
+  geom_point(alpha=0.5) +
+  scale_color_manual("Sample Type",labels = c('TDM'="stalagmite",'EXB'= "extraction blank"), values=c('lightblue3','darkred'))+
+  stat_ellipse(type = "t", level = 0.95) +  
+  xlab(bquote("PC1 ("*.(tax_var[1])*" variance)")) +
+  ylab(bquote("PC2 ("*.(tax_var[2])*" variance)")) +
+  theme_bw(base_size = 9)+
+  theme(legend.position = 'bottom')+
+   geom_path(aes(group = sample_type),color='gray40',alpha=0.5, arrow = arrow(length = unit(0.2, "cm"), type = "closed"))+
+  geom_label_repel(data=df[df$Sample %in% c('TDM001','TDM061', 'TDM056', 'TDM024', 'TDM037', 'TDM035'),],aes(label=Sample),size = 2.5,
+    segment.color = "darkred",
+    segment.size = 0.5,
+    min.segment.length = 0,
+    direction='both', box.padding=0.75, show.legend = FALSE, max.overlaps = 5)
+pca_plot
+```
+
+# 3. Volcano plot
+The purpose of this analysis is to identify stalagmite enriched taxa in comparison to the extraction blank. I'm focussing on the subset of contigs annotated at genus level. q-values shown on the y-axis are obtained from a permutation test.
+
+## 3.1 Genus abundance table 
+```{r}
+genus_wide= data %>% group_by(sample, genus) %>% summarize(summed_TPM=sum(tpm))%>% mutate(across(where(is.character), ~ifelse(. == "", "unclassified", .)))%>% pivot_wider(names_from = genus, values_from = summed_TPM, values_fill = 0,values_fn = sum) %>% mutate(across(where(is.numeric), ~replace_na(., 0))) %>% ungroup() %>% as.data.frame()
+
+rownames(genus_wide)=genus_wide[,1]
+genus_wide=genus_wide[,-1]
+```
+## 3.2 Calculate prevalence of genera
+```{r}
+compute_prevalence= function(abund_df, control_prefix = "EXB", sample_prefix = "TDM", epsilon = 1e-6) {
+  # Identify which rows are controls and which are samples
+  control_rows = grepl(paste0("^", control_prefix), rownames(abund_df))
+  sample_rows  = grepl(paste0("^", sample_prefix), rownames(abund_df))
+  # Compute prevalence (fraction of samples with non-zero abundance)
+  prev_control = colSums(abund_df[control_rows, , drop = FALSE] > 0, na.rm = TRUE)
+  prev_sample  = colSums(abund_df[sample_rows, , drop = FALSE] > 0, na.rm = TRUE)
+  # Combine results into data frame
+  prevalence_df = data.frame(
+    Taxon = names(prev_sample),
+    prev_control = prev_control,
+    prev_sample  = prev_sample,
+    stringsAsFactors = FALSE
+  )
+  return(prevalence_df)
+}
+
+```
+```{r}
+genus_prevalence_df=compute_prevalence(genus_wide)
+```
+
+## 3.3 CLR transformation
+```{r}
+clr_transform = function(df, pseudocount = 1e-6) {
+  df = df + pseudocount
+  log_df = log(df)
+  gm_mean = rowMeans(log_df)
+  clr_df = sweep(log_df, 1, gm_mean, "-")
+  return(clr_df)}
+```
+```{r}
+clr_df = clr_transform(genus_wide) %>%
+  as.data.frame() %>%
+  mutate(lib_type = substr(rownames(.), 1, 3))
+```
+
+## 3.4 Permutation test
+```{r}
+perm_test_all_genera = function(data, lib_type_col = "lib_type",
+                                 control_label = "EXB",
+                                 sample_label = "TDM",
+                                 n_perm = 10000) {
+  # Ensure lib_type column exists
+  if (!(lib_type_col %in% names(data))) {
+    stop("Column '", lib_type_col, "' not found in data.")
+  }
+
+  # Identify which columns are genera (numeric only)
+  genus_cols = names(data)[sapply(data, is.numeric)]
+  genus_cols = setdiff(genus_cols, lib_type_col)
+
+  # Split data into controls and samples
+  controls_idx = data[[lib_type_col]] == control_label
+  samples_idx  = data[[lib_type_col]] == sample_label
+
+  results = data.frame(
+    genus = genus_cols,
+    obs_diff = NA_real_,
+    pval = NA_real_,
+    stringsAsFactors = FALSE
+  )
+
+  # Iterate through each genus
+  for (g in genus_cols) {
+    controls <- data[controls_idx, g]
+    samples  <- data[samples_idx, g]
+
+    # skip genera with NA or too few values
+    if (anyNA(controls) || anyNA(samples) || length(controls) < 2) next
+
+    obs_diff = mean(samples) - mean(controls)
+    combined = c(samples, controls)
+    n_samp = length(samples)
+
+    perm_diffs = numeric(n_perm)
+    for (i in seq_len(n_perm)) {
+      shuffled = sample(combined)
+      perm_diffs[i] = mean(shuffled[1:n_samp]) - mean(shuffled[(n_samp + 1):length(combined)])
+    }
+
+    pval = (sum(abs(perm_diffs) >= abs(obs_diff)) + 1) / (n_perm + 1)
+
+    results[results$genus == g, c("obs_diff", "pval")] <- c(obs_diff, pval)
+  }
+
+  # Add FDR-corrected q-values
+  results$qval = p.adjust(results$pval, method = "fdr")
+
+  return(results)
+}
+
+```
+For reproducibility and time reasons I saved the results of the permutation test for later use.
+```{r}
+set.seed(6397)
+#results_high_perm =  perm_test_all_genera(clr_df,n_perm = 100000)
+```
+```{r}
+#write.csv(results_high_perm, file = "results_high_perm.csv", row.names = FALSE)
+```
+```{r}
+results_high_perm=read.csv("./results_high_perm.csv")
+```
+
+## 3.5 Plot Volcano plot
+```{r,fig.width=4, fig.height=4}
+volcano=results_high_perm %>% merge(genus_prevalence_df, by.x='genus', by.y='Taxon') %>% 
+  mutate(
+    prev_bin = cut(
+      prev_sample,
+      breaks = c(-Inf, 6,11 , 31, 50, 55, Inf),
+      labels = c('0-5',"6-10","11-30", "31-49", "50-54", "55-60"),
+      right = FALSE
+    )) %>% 
+ggplot(aes(x = obs_diff, y = -log(qval))) +
+  geom_point(aes(color=prev_bin),alpha=0.5)+
+  theme_bw(base_size = 9)+
+  scale_color_manual(
+    name = "Prevalence\n(# stalagmite samples)",
+    values = c(
+      "0-5"=  "slategray4",
+      "6-10"   = "lightblue3",
+      "11-30" =  "lightblue1",
+      "31-49" = "#DBC8C8",
+      "50-54" = "firebrick2",
+      "55-60" = "darkred"
+    ))+
+  labs(
+    x = expression(bar(CLR)[stalagmite]~-~bar(CLR)[blank]),
+    y = "-log(q-value)"
+  )+
+  geom_label_repel( data = results_high_perm[results_high_perm$obs_diff > 19 &
+                                 results_high_perm$qval<0.01, ],
+    aes(label = genus), size=2.5, force=50, max.overlaps = 3,point.padding=0,direction='y', nudge_y=0.5)+
+  ylim(c(0,10))+
+  xlim(c(-25,25))+
+  theme(legend.position = 'bottom')
+volcano
+```
+```{r}
+t=results_high_perm %>% merge(genus_prevalence_df, by.x='genus', by.y='Taxon') %>% 
+  mutate(
+    prev_bin = cut(
+      prev_sample,
+      breaks = c(-Inf, 6,11 , 31, 50, 55, Inf),
+      labels = c('0-5',"6-10","11-30", "31–49", "50–54", "55–60"),
+      right = FALSE
+    )) 
+t
+```
+
+# 4. Combined Plot (Figure 2)
+```{r, fig.width=7}
+(pca_plot|volcano) + plot_annotation(tag_levels = "A")
+#ggsave('../../../06_figures/Fig2/Fig2.pdf')
+```
+
+# 5. Taxonomic overview table for Supplementary
+
+```{r}
+S1= data %>% group_by(taxID,taxon, rank,kingdom,phylum,class,order,family,genus,species,sample) %>% summarize(summed_TPM=sum(tpm))%>% mutate(across(where(is.character), ~ifelse(. == "", "unclassified", .)))%>% pivot_wider(names_from = sample, values_from = summed_TPM, values_fill = 0,values_fn = sum) %>% mutate(across(where(is.numeric), ~replace_na(., 0))) %>% ungroup() %>% as.data.frame()
+```
+```{r}
+write.csv(S1, file = "../../../07_overview_tables/S1_tax_overview.csv", row.names = FALSE)
+```
+
+
