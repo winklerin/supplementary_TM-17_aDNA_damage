@@ -92,7 +92,8 @@ p1= data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$categ
 p1
 ```
 ```{r}
-ggsave('../../06_figures/Fig1/E.pdf', height = 5, width=1.5, units = 'in')
+#ggsave('../../06_figures/Fig1/F.pdf', height = 5, width=1.5, units = 'in')
+saveRDS(p1, '../../06_figures/Fig1/F.rds')
 ```
 
 ```{r, fig.height=2.5, fig.width=1.2}
@@ -104,8 +105,8 @@ p2=data_long[data_long$name %in% c('L50') & data_long$category=='TDM',] %>% ggpl
   ylab('')+
   theme(axis.text.x = element_blank())
 p2
-ggsave('../../06_figures/Fig1/F.pdf', height=2.5, width=1.2, units = 'in')
-saveRDS(p2, '../../06_figures/Fig1/F.rds')
+#ggsave('../../06_figures/Fig1/G.pdf', height=2.5, width=1.2, units = 'in')
+saveRDS(p2, '../../06_figures/Fig1/G.rds')
 ```
 
 ```{r, fig.height=2.5, fig.width=1.2}
@@ -117,8 +118,8 @@ p3=data_long[data_long$name %in% c('N50') & data_long$category=='TDM',] %>% ggpl
   ylab('')+
   theme(axis.text.x = element_blank())
 p3 
-ggsave('../../06_figures/Fig1/G.pdf', height=2.5, width=1.2, units = 'in')
-saveRDS(p3, '../../06_figures/Fig1/G.rds')
+#ggsave('../../06_figures/Fig1/H.pdf', height=2.5, width=1.2, units = 'in')
+saveRDS(p3, '../../06_figures/Fig1/H.rds')
 ```
 
 
