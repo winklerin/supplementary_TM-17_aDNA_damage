@@ -1,8 +1,11 @@
 Input:
--QUAST output files from nf-core/MAG
+
+- QUAST output files from nf-core/MAG
 
 Output:
--overview table of assembly statistics
+
+- overview table of assembly statistics
 
 Contribution to Figures
--Figure 1, E,F,G
+
+- Figure 1, F,G,H
