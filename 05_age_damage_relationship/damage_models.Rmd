@@ -1,0 +1,1196 @@
+---
+title: "aDNA damage analysis"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+bibliography: "grateful-refs.bib"
+---
+# 1. Preparations
+# 1.1 Packages
+```{r}
+library(tidyverse)
+packageVersion('tidyverse')
+library(patchwork)
+packageVersion('patchwork')
+library(ggrepel)
+packageVersion('ggrepel')
+library(propagate)
+packageVersion('propagate')
+library(pROC)
+packageVersion('pROC')
+library(scales)
+packageVersion('scales')
+```
+# 1.2 Read the data
+
+I worked with a training data set (data) to explore trends and fit models and a test dataset (test_genera) to test the models' performance
+
+#### Training data
+```{r}
+data=read.csv('/home/lucia_winkler/speleothem/speleothem-analysis/reference_free_analysis/nf-damage-inference/results/2025-11-26_damage_data.csv')
+```
+```{r}
+data_w = pivot_wider(data[,-c(3:4)],
+           names_from = tool_param,
+           values_from = value )
+data_w$mapdamage_1_over_lambda=1/data_w$mapdamage_lambda
+data_w$pydamage_1over_p=1/data_w$pydamage_p
+data_w$qPCRcopies_per_uL_and_mg_rock=data_w$qPCRcopies_per_uL/data_w$mass_mg
+```
+#### Test data
+```{r}
+test_genera = read_csv("/home/lucia_winkler/speleothem/speleothem-analysis/reference_free_analysis/nf-damage-inference/results/2025-11-26_damage_data_test_genera.csv")
+```
+```{r}
+test_genera_w = pivot_wider(test_genera[,-c(3:4)],
+           names_from = tool_param,
+           values_from = value )
+test_genera_w$qPCRcopies_per_uL_and_mg_rock=test_genera_w$qPCRcopies_per_uL/test_genera_w$mass_mg
+```
+
+
+# 2.Characterization of Pseudobins 
+## 2.1 Assembly length in pseudo-bins
+```{r, fig.width=6.5, fig.height=6}
+
+# Calculate sample size per genus
+n_data <- data_w %>%
+  group_by(genus) %>%
+  summarise(N = n())
+
+# Add the sample size as text labels
+assembly <- ggplot(data_w,
+                   aes(x = factor(genus, levels = c('nitrospira',
+                                                    'candidatus_nitrosotenuis',
+                                                    'conexibacter',
+                                                    'candidatus_methylomirabilis',
+                                                    'piscinibacter',
+                                                    'nitrosotalea')),
+                       y = pydamage_len)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = 0.5, color = 'gray40') +
+  scale_y_log10(limits = c(100, 10000000)) +
+  theme_bw(base_size = 9) +
+  coord_flip(clip = "off") +
+  ylab('Assembly Length (bp)') +
+  xlab('') +
+  theme(axis.text.x = element_text(angle=45, hjust=1, vjust=1),
+        axis.text.y = element_text(face = "italic"),plot.margin = margin(1, 1, 1, 1, "cm")) +
+  scale_x_discrete(labels = c(
+    "candidatus_methylomirabilis" = "Cand. Methylomirabilis\n(N=55)" , 
+    "candidatus_nitrosotenuis"  = "Cand. Nitrosotenuis\n(N=57)",
+    "conexibacter"  =  "Conexibacter\n(N=56)",
+    "nitrosotalea"  ="Nitrosotalea\n(N=57)",
+    "nitrospira"="Nitrospira\n(N=60)",
+    "piscinibacter" = "Piscinibacter\n(N=56)"
+  )) 
+assembly
+```
+
+## 2.2 GC content
+```{r}
+
+gc_over_time <- data_w %>%
+group_by(genus) %>%
+  mutate(weight_len = log1p(pydamage_len),  # log(1 + len) to handle zeros safely
+         weight_len = weight_len / max(weight_len, na.rm = TRUE)) %>%
+do({
+fit <- lm(gc_gc ~ median_age_yrs_bf_1950, data = .,weights = weight_len)
+s <- summary(fit)
+# slope = coefficient for age
+slope <- coef(s)["median_age_yrs_bf_1950", "Estimate"]
+se    <- coef(s)["median_age_yrs_bf_1950", "Std. Error"]
+tval  <- coef(s)["median_age_yrs_bf_1950", "t value"]
+pval  <- coef(s)["median_age_yrs_bf_1950", "Pr(>|t|)"]
+r2    <- s$r.squared
+adjr2 <- s$adj.r.squared
+data.frame(
+slope = slope,
+se = se,
+tval = tval,
+pval = pval,
+r2 = r2,
+adjr2 = adjr2
+)
+}) %>%
+ungroup() %>%
+mutate(p_adj = p.adjust(pval, method = "BH"))
+print(gc_over_time)
+```
+```{r}
+#gc_values from literature (min/max)
+gc_lit=data.frame(
+  piscinibacter=c(0.662, 0.699),
+  conexibacter=c(0.7, 0.74),
+  nitrosotalea=c(0.371, 0.374),
+  nitrospira=c(0.483,0.637),
+  candidatus_nitrosotenuis=c(0.41,0.423),
+  candidatus_methylomirabilis=c(0.5858, 0.5987)) %>% t() %>% data.frame() %>% rownames_to_column("genus") %>%  mutate(genus_f = factor(genus, levels=c("candidatus_nitrosotenuis","nitrosotalea" , "candidatus_methylomirabilis", "nitrospira" , "piscinibacter", "conexibacter")))
+gc_lit
+```
+```{r}
+genus_labels = c(
+  "candidatus_methylomirabilis" = "Cand. Methylomirabilis",
+  "candidatus_nitrosotenuis"  = "Cand. Nitrosotenuis",
+  "conexibacter"  =  "Conexibacter",
+  "nitrosotalea"  = "Nitrosotalea",
+  "nitrospira" = "Nitrospira",
+  "piscinibacter" = "Piscinibacter"
+)
+
+```
+```{r, fig.width=7, fig.height=3}
+gc_plot=data_w %>%
+  mutate(genus_f = factor(genus, levels=c("candidatus_nitrosotenuis","nitrosotalea" , "candidatus_methylomirabilis", "nitrospira" , "piscinibacter", "conexibacter"))) %>% 
+ ggplot(aes(x = '', y = gc_gc)) +
+geom_hline(data = gc_lit, aes(yintercept=X1),color='lightblue3') +
+geom_hline(data = gc_lit, aes(yintercept=X2),color='lightblue3') +  
+   geom_rect(data = gc_lit, aes(xmin = -Inf, xmax = Inf, ymin = X1, ymax = X2),
+            inherit.aes = FALSE, fill = "lightblue3", alpha = 0.3)+
+geom_violin(fill='gray80', linewidth=0.2)+
+geom_boxplot(width=0.2)+
+facet_wrap(~ genus_f, labeller = labeller(
+               genus_f = as_labeller(genus_labels)), nrow=1, ncol=6,drop = FALSE) +
+labs(
+x = "",
+y = "GC content (mol%)"
+) +
+theme_bw(base_size = 9)+
+  scale_y_continuous(labels = label_percent(accuracy = 1))
+gc_plot
+```
+
+There is no significant temporal trend in GC content, except for Conexibacter, where the GC content is weakly falling with increasing age.
+
+For genera with low to mid GC-content according to literature, the observed GC content in the aDNA pseudo-bins was higher than the literature value  
+
+# 3. Correlation analysis
+## 3.1 Correlation of parameters with age
+I correlated all damage parameters with age but separated by genus to see if the trends are consistent.
+I chose Spearman correlation because the expected relationship is non-linear.
+
+```{r}
+cor_data = data[data$tool_param %in% c("pydamage_pmin","pydamage_pmax","pydamage_p" ,"mapdamage_delta_d",     "mapdamage_delta_s","mapdamage_lambda","compute_length_mode", "compute_length_geom_p"),] %>%
+  group_by(genus, tool_param) %>%
+  summarise(
+    cor_test = list(cor.test(median_age_yrs_bf_1950,  if(tool_param[1] %in% c("")) 1 / value else value, method = "spearman")),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    estimate = map_dbl(cor_test, ~ .x$estimate),
+    p_value = map_dbl(cor_test, ~ .x$p.value)
+  )
+```
+I'm adjusting p-values for multiple testing with the Banjamini-Hochberg method and create labels for plotting
+```{r}
+cor_data = cor_data %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH")) %>%
+  mutate(
+    label = sprintf("rho = %.2f\nadj.p = %.3g", estimate, p_adj),
+    stars = case_when(
+    p_adj <= 0.001 ~ "***",
+    p_adj <= 0.01  ~ "**",
+    p_adj <= 0.05  ~ "*",
+    TRUE          ~ ""),
+    label_short = paste0(round(estimate, 2), stars))
+```
+####  Heatmap
+```{r, fig.width=6, fig.height=3}
+cor= cor_data %>% mutate(class=sub("_.*", "", tool_param)) %>%  ggplot(aes(y=factor(genus, levels=c('nitrospira','candidatus_nitrosotenuis','conexibacter','candidatus_methylomirabilis', 'piscinibacter','nitrosotalea')), x=factor(tool_param,levels=c('compute_length_geom_p','compute_length_mode','mapdamage_delta_s','mapdamage_delta_d','mapdamage_lambda','pydamage_pmax','pydamage_pmin','pydamage_p')), fill=estimate))+
+  geom_tile()+
+  scale_fill_gradient2(low = "lightblue3", mid = "white", high = "darkred", midpoint = 0, limits = c(-1, 1))+
+  geom_text(aes(label = label_short), color = "black", size = 2.5)+
+  scale_x_discrete(labels = c("pydamage_p" = "p" , 
+                               "pydamage_pmin" = expression(~p[min]),
+                                "mapdamage_delta_s" = expression(~delta[s]),
+                               "compute_length_mode" ="Mode",
+                               "mapdamage_lambda"=expression(~lambda),
+                               "mapdamage_delta_d" = expression(~delta[d]),
+                               "compute_length_geom_p" =expression(~p[geom]),
+                               "pydamage_pmax"=expression(~p[max])))+
+  scale_y_discrete(labels = c("candidatus_methylomirabilis" = "Cand. Methylomirabilis" , 
+                              "candidatus_nitrosotenuis"  = "Cand. Nitrosotenuis",
+                               "conexibacter"  =  "Conexibacter",
+                               "nitrosotalea"  ="Nitrosotalea",
+                               "nitrospira"="Nitrospira",
+                               "piscinibacter" = "Piscinibacter"))+
+   facet_grid(. ~ class, scales="free_x", space="free")+
+  theme_minimal(base_size = 9)+
+  theme( legend.position = 'bottom', axis.text.y=element_text(face = "italic"),  legend.key.width = unit(1, "cm"))+
+   labs(
+    y = 'Genus',
+    x = 'Damage Parameter',
+    fill = expression(paste("Correlation with age (Spearman's ", rho, ")")))
+cor
+```
+
+#### Scatterplot
+```{r, fig.height=8, fig.width=7}
+#Helper function for the labels
+tool_param_labels <- c(
+  "pydamage_p" = "'PyDamage'~p",
+  "pydamage_pmin" = "'PyDamage'~p[min]",
+  "mapdamage_delta_s" = "'mapDamage'~delta[s]",
+  "compute_length_mode" = "'Read length'~Mode",
+  "mapdamage_lambda" = "'mapDamage'~lambda",
+  "mapdamage_delta_d" = "'mapDamage'~delta[d]",
+  "compute_length_geom_p" = "'Read length'~p[geom]",
+  "pydamage_pmax" = "'PyDamage'~p[max]"
+)
+
+# Named vector of labels for genus (plain text)
+genus_labels = c(
+  "candidatus_methylomirabilis" = "Cand. Methylomirabilis",
+  "candidatus_nitrosotenuis"  = "Cand. Nitrosotenuis",
+  "conexibacter"  =  "Conexibacter",
+  "nitrosotalea"  = "Nitrosotalea",
+  "nitrospira" = "Nitrospira",
+  "piscinibacter" = "Piscinibacter"
+)
+
+data[data$tool_param %in% c("pydamage_pmin","pydamage_pmax","pydamage_p" ,"mapdamage_delta_d",     "mapdamage_delta_s","mapdamage_lambda","compute_length_mode", "compute_length_geom_p"),] %>% mutate(
+    value_plot = ifelse(tool_param %in% c(""), 1 / value, value)
+  ) %>% 
+ggplot(aes(x = median_age_yrs_bf_1950, y = value_plot, color = genus)) +
+  geom_vline(xintercept=32000, color="gray75")+
+  geom_point(shape=4) +
+ facet_grid(rows = vars(tool_param), cols = vars(genus),
+             scales = "free_y",
+             labeller = labeller(
+               tool_param = as_labeller(tool_param_labels, label_parsed),
+               genus = as_labeller(genus_labels)
+             )) +
+  theme_bw(base_size = 8) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),legend.position = 'bottom') +
+  geom_text(size=3,
+    data = cor_data,
+    aes(label = label),
+    x = Inf, y = Inf,
+    hjust = 1.1, vjust = 1.1,
+    inherit.aes = FALSE
+  )+
+  xlab('Nominal Age (Years BP)')+
+  scale_color_manual("", values =c( "darkred","lightblue3",'#009E73',"darkorchid", "blue4", '#E66101'),guide = guide_legend(ncol = 6), labels =c(
+  "candidatus_methylomirabilis" = "Cand. Methylomirabilis",
+  "candidatus_nitrosotenuis"  = "Cand. Nitrosotenuis",
+  "conexibacter"  =  "Conexibacter",
+  "nitrosotalea"  = "Nitrosotalea",
+  "nitrospira" = "Nitrospira",
+  "piscinibacter" = "Piscinibacter"
+) )
+```
+
+Beyond 32000 years temporal trends reversed or became unstable in multiple parameters and genera. This conincides with a change in the microfabric of TM-17. Therefore we restrict the damage modelling to samples younger than 32000y.
+
+## 3.2 correlation of parameters with each other
+### 3.2.1 Fragment length and 1/lambda
+```{r}
+cor.test(data_w$compute_length_geom_p, 1/data_w$mapdamage_lambda, method='spearman' )
+```
+
+
+```{r, fig.widht=8, fig.height=5}
+p_cor=ggplot(data_w, aes(y=1/mapdamage_lambda, x=compute_length_geom_p))+
+  geom_point(shape=4, color='gray40')+
+  theme_bw(base_size = 9)+
+   labs( y=expression("Mean Overhang length "* 1/lambda*" (bp)"),  x = expression(p[geom]))+
+   annotate('text', x = 0.075, y = 2.25, label = "Spearman's Rho = 0.63,\np-value < 2.2e-16", size=3)
+p_cor
+```
+
+### 3.2.3 p and lambda
+```{r}
+cor.test(data_w$pydamage_p, data_w$mapdamage_lambda, method='spearman' )
+```
+```{r}
+ggplot(data_w, aes(y=mapdamage_lambda, x=pydamage_p))+
+  geom_point(shape=4, color='gray40')+
+  theme_bw(base_size = 9)+
+   labs( y=expression("mapDamage "* lambda),  x = "PyDamage p")+
+   annotate('text', x = 0.6, y = 0.25, label = "Spearman's Rho = 0.60,\np-value < 2.2e-16", size=3)
+```
+
+
+# 4. Exponential saturation models: Damage over time
+## 4.1 delta_s over time
+### 4.1.1 Fit
+```{r}
+plottable_delta_s=data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'mapdamage_delta_s', 'genus','sample','gc_gc')]
+fit_delta_s <- nls(mapdamage_delta_s  ~ 1 - exp(-r * median_age_yrs_bf_1950),data = plottable_delta_s,start = list(r = 1e-3))
+summary(fit_delta_s)
+```
+### 4.1.2 Confidence and Prediction interval
+```{r,message=FALSE}
+# Prediction interval (new observation)
+PI_delta_s <- predictNLS(fit_delta_s,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_delta_s$median_age_yrs_bf_1950),interval = "prediction",alpha = 0.05,nsim = 10000)$summary
+CI_delta_s <- predictNLS(fit_delta_s,newdata =data.frame(median_age_yrs_bf_1950=plottable_delta_s$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+```
+
+### 4.1.3 Plot
+```{r}
+plottable_delta_s$PI_lower <- PI_delta_s[, "Sim.2.5%"]
+plottable_delta_s$PI_upper <- PI_delta_s[, "Sim.97.5%"]
+plottable_delta_s$CI_lower <- CI_delta_s[, "Sim.2.5%"]
+plottable_delta_s$CI_upper <- CI_delta_s[, "Sim.97.5%"]
+plottable_delta_s$fitted <- predict(fit_delta_s)
+plottable_delta_s$residual=residuals(fit_delta_s)
+
+p_deltas=ggplot(plottable_delta_s, aes(x = median_age_yrs_bf_1950)) +
+  geom_line(aes(y = PI_lower,color='95% PI'),linetype='twodash')+
+  geom_line(aes(y= pmin(pmax(PI_upper, 0), 1),color='95% PI'),linetype='twodash')+
+  geom_ribbon(aes(x = median_age_yrs_bf_1950,
+                  ymin = CI_lower, ymax = CI_upper, fill = "95% CI"), alpha=0.5) +
+  geom_point(aes(x = median_age_yrs_bf_1950, y = mapdamage_delta_s),color = "gray40", shape = 4) +
+  geom_line(aes(x = median_age_yrs_bf_1950, y = fitted), color = "black") +
+  labs( x = "Nominal Age (Years BP)", y = expression(delta[s]),caption= expression("Fit: "~
+  delta[s] == 1 - e^{-r %*% Age}) )+
+  geom_hline(yintercept=1, colour='darkred')+
+  scale_color_manual(name = "",
+    values = c( '95% PI' = "gray40"))+
+  scale_fill_manual('', values = c("95% CI" = "lightblue3"))+
+  theme_bw(base_size=9)
+  
+p_deltas
+```
+### 4.1.4 Characteristic values
+
+```{r}
+# time to saturation (99%)
+(-1/coef(fit_delta_s)['r'])*log(0.01)
+```
+
+### 4.1.5 Residuals
+```{r}
+delta_s_res=ggplot(plottable_delta_s, aes(x=median_age_yrs_bf_1950, y=residual, color=genus))+
+geom_point(shape=4)+
+geom_hline(yintercept=0)+
+theme_bw(base_size = 9)+
+labs(x='Nominal Age (Years BP)', y='Residual', title='Residuals', subtitle=expression(~delta[s]*' vs. Age Model'))+
+scale_color_manual("Genus", values =c( "darkred",   "lightblue3",    '#009E73',    "darkorchid",   "blue4",'#E66101'),
+                    labels = c("Cand. Methylomirabilis", "Cand. Nitrosotenuis", "Conexibacter", "Nitrosotalea", "Nitrospira", "Piscinibacter"))
+delta_s_res
+```
+
+  
+## 4.2 pmax over time
+### 4.2.1 Fit
+```{r}
+plottable_pmax=data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'pydamage_pmax','genus', 'sample', 'gc_gc')]
+# Fit the model using nls
+fit_pmax <- nls(pydamage_pmax  ~ a+b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_pmax,
+start = list(r = 1e-4, b=0.6,a=0.2))
+summary(fit_pmax)
+
+```
+### 4.2.2 Confidence and Prediction intervals
+```{r,message=FALSE}
+# Confidence interval (mean curve)
+CI_pmax = predictNLS(fit_pmax, newdata = data.frame(median_age_yrs_bf_1950=plottable_pmax$median_age_yrs_bf_1950 ), interval = "confidence", alpha = 0.05, nsim = 10000)$summary
+
+# Prediction interval (new observation)
+PI_pmax= predictNLS(fit_pmax, newdata =data.frame(median_age_yrs_bf_1950=plottable_pmax$median_age_yrs_bf_1950), interval = "prediction", alpha = 0.05, nsim = 10000)$summary
+
+```
+
+### 4.2.3 Plot
+
+```{r, fig.width=8, fig.height=5 }
+plottable_pmax$fitted <- predict(fit_pmax)
+plottable_pmax$residual=residuals(fit_pmax)
+plottable_pmax$CI_lower <- CI_pmax[, "Sim.2.5%"]
+plottable_pmax$CI_upper <- CI_pmax[, "Sim.97.5%"]
+plottable_pmax$PI_lower <- PI_pmax[, "Sim.2.5%"]
+plottable_pmax$PI_upper <- PI_pmax[, "Sim.97.5%"]
+
+p_pmax= ggplot(plottable_pmax, aes(x = median_age_yrs_bf_1950)) +
+  geom_line(aes(y = PI_lower,color='95% PI'),linetype='twodash')+
+  geom_line(aes(y= PI_upper,color='95% PI'),linetype='twodash')+
+  geom_ribbon(aes(x = median_age_yrs_bf_1950,
+                  ymin = CI_lower, ymax = CI_upper, fill = "95% CI"), alpha=0.5) +
+geom_point(aes(x = median_age_yrs_bf_1950, y = pydamage_pmax), shape=4, colour='gray40') +
+geom_line(aes(x = median_age_yrs_bf_1950, y = fitted))+
+geom_hline(yintercept= coef(fit_pmax)["a"]+coef(fit_pmax)['b'], colour='darkred')+
+scale_color_manual(name = "",values = c( '95% PI' = "gray40"))+
+scale_fill_manual('', values = c("95% CI" = "lightblue3"))+  
+theme_bw(base_size=9)+
+scale_x_continuous(expand = c(0,0), limits=c(0,32000))+
+labs(
+caption = expression("Fit: "~
+p[max] == a + b %*% (1 - e^{-r %*% Age})) ,y=expression(p[max]), x = "Nominal Age (Years BP)")
+p_pmax
+```
+
+### 4.2.4 characteristic values
+```{r}
+# 99% saturation time (-1/r)*log(1-0.99)
+(-1/coef(fit_pmax)['r'])*log(0.01)
+```
+```{r}
+#saturation value
+coef(fit_pmax)['b']+coef(fit_pmax)["a"]
+```
+
+### 4.2.5 Residuals
+```{r, fig.width=9}
+pmax_res=ggplot(plottable_pmax, aes(x=median_age_yrs_bf_1950, y=residual, color=genus))+
+geom_point(shape=4)+
+geom_hline(yintercept=0)+
+theme_bw(base_size = 9)+
+labs(x='Nominal Age (Years BP)', y='Residual',subtitle=expression(~p[max]*' vs. Age Model'))+
+scale_color_manual("Genus", values =c( "darkred",   "lightblue3",    '#009E73',    "darkorchid",   "blue4",'#E66101'),
+                  labels = c("Cand. Methylomirabilis", "Cand. Nitrosotenuis", "Conexibacter", "Nitrosotalea", "Nitrospira", "Piscinibacter"))
+pmax_res
+```
+
+## 4.3 p_geom over time
+### 4.3.1 Fit
+```{r}
+plottable_pgeom <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'compute_length_geom_p', 'genus', 'sample','gc_gc')]
+
+fit_pgeom<- nls(compute_length_geom_p ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_pgeom,
+start = list(b = 0.12, r = 0.0001, a=0.02),
+control = nls.control(maxiter = 100, warnOnly = FALSE))
+# Summary of fit
+summary(fit_pgeom)
+
+```
+### 4.3.2 Confidence and Predcition intervals
+```{r,message=FALSE}
+# Confidence interval (mean curve)
+CI_pgeom = predictNLS(fit_pgeom, newdata = data.frame(median_age_yrs_bf_1950=plottable_pgeom$median_age_yrs_bf_1950 ), interval = "confidence", alpha = 0.05, nsim = 10000)$summary
+
+# Prediction interval (new observation)
+PI_pgeom= predictNLS(fit_pgeom, newdata =data.frame(median_age_yrs_bf_1950=plottable_pgeom$median_age_yrs_bf_1950), interval = "prediction", alpha = 0.05, nsim = 10000)$summary
+```
+
+### 4.3.3 Plot
+```{r}
+plottable_pgeom$fitted <- predict(fit_pgeom)
+plottable_pgeom$residual= residuals(fit_pgeom)
+plottable_pgeom$CI_lower <- CI_pgeom[, "Sim.2.5%"]
+plottable_pgeom$CI_upper <- CI_pgeom[, "Sim.97.5%"]
+plottable_pgeom$PI_lower <- PI_pgeom[, "Sim.2.5%"]
+plottable_pgeom$PI_upper <- PI_pgeom[, "Sim.97.5%"]
+
+  p_pgeom=ggplot(plottable_pgeom, aes(x=median_age_yrs_bf_1950))+
+    geom_line(aes(y = PI_lower,color='95% PI'),linetype='twodash')+
+  geom_line(aes(y= PI_upper,color='95% PI'),linetype='twodash')+
+  geom_ribbon(aes(x = median_age_yrs_bf_1950,
+                  ymin = CI_lower, ymax = CI_upper, fill = "95% CI"), alpha=0.5) +
+geom_point(aes(x=median_age_yrs_bf_1950, y=compute_length_geom_p),shape=4, color='gray40')+
+geom_line(aes(x=median_age_yrs_bf_1950, y=fitted))+
+geom_hline(yintercept=coef(fit_pgeom)['b']+coef(fit_pgeom)['a'], colour='darkred')+
+theme_bw(base_size = 9)+
+scale_color_manual(name = "",values = c( '95% PI' = "gray40"))+
+scale_fill_manual('', values = c("95% CI" = "lightblue3"))+  
+scale_x_continuous(expand = c(0,0), limits=c(0,32000))+
+labs(
+caption = expression("Fit: "~
+p[geom] == a + b %*% (1 - e^{-r %*% Age})) ,y=expression(p[geom]), x = "Nominal Age (Years BP)")
+p_pgeom
+```
+
+### 4.3.4 Characteristic values
+
+```{r}
+#saturation value p_inf+a
+coef(fit_pgeom)['b']+coef(fit_pgeom)['a']
+```
+
+```{r}
+# 99% saturation time (-1/r)*log(1-0.99)
+(-1/coef(fit_pgeom)['r'])*log(0.01)
+```
+
+### 4.3.5 Residuals
+
+```{r, fig.width=8}
+p_geom_res=ggplot(plottable_pgeom, aes(x=median_age_yrs_bf_1950, y=residual, color=genus))+
+geom_point(shape=4)+
+geom_hline(yintercept=0)+
+theme_bw(base_size = 9)+
+labs(x='Nominal Age (Years BP)', y='Residual',subtitle=expression(~p[geom]*' vs. Age Model'))+
+scale_color_manual("Genus", values =c( "darkred",   "lightblue3",    '#009E73',    "darkorchid",   "blue4",'#E66101'),
+                  labels = c("Cand. Methylomirabilis", "Cand. Nitrosotenuis", "Conexibacter", "Nitrosotalea", "Nitrospira", "Piscinibacter"))
+p_geom_res
+```
+
+## 4.4 length mode over time
+### 4.4.1 Fit
+```{r}
+plottable_mode <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'compute_length_mode', 'genus', 'sample', 'gc_gc')]
+
+fit_mode <- nls(
+compute_length_mode ~ Lmin + (L0 - Lmin) * exp(-lambda * median_age_yrs_bf_1950),
+data = plottable_mode,
+start = list(L0 = 70, Lmin = 30, lambda = 0.0001))
+
+summary(fit_mode)
+```
+### 4.4.2 Confidence and Prediction Intervals
+```{r,message=FALSE}
+# Confidence interval (mean curve)
+CI_mode = predictNLS(fit_mode, newdata = data.frame(median_age_yrs_bf_1950=plottable_mode$median_age_yrs_bf_1950 ), interval = "confidence", alpha = 0.05, nsim = 10000)$summary
+
+# Prediction interval (new observation)
+PI_mode= predictNLS(fit_mode, newdata =data.frame(median_age_yrs_bf_1950=plottable_mode$median_age_yrs_bf_1950), interval = "prediction", alpha = 0.05, nsim = 10000)$summary
+```
+### 4.4.3 Plot
+```{r}
+plottable_mode$fitted <- predict(fit_mode)
+plottable_mode$residual=residuals(fit_mode)
+plottable_mode$CI_lower <- CI_mode[, "Sim.2.5%"]
+plottable_mode$CI_upper <- CI_mode[, "Sim.97.5%"]
+
+plottable_mode$PI_lower <- PI_mode[, "Sim.2.5%"]
+plottable_mode$PI_upper <- PI_mode[, "Sim.97.5%"]
+
+p_mode =ggplot(plottable_mode, aes(x = median_age_yrs_bf_1950)) +
+   geom_line(aes(y = PI_lower,color='95% PI'),linetype='twodash')+
+  geom_line(aes(y= PI_upper,color='95% PI'),linetype='twodash')+
+  geom_ribbon(aes(x = median_age_yrs_bf_1950,
+                  ymin = CI_lower, ymax = CI_upper, fill = "95% CI"), alpha=0.5) +
+geom_point(aes(y = compute_length_mode), color = "gray40", shape=4) +
+geom_line(aes(y = fitted), color = "black") +
+labs(x = "Nominal Age (Years BP)", y = "Mode Fragment Length \n(bp)", caption = expression("Fit: "~
+mode == L[min]+(L[0]-L[min]) %*%  e^{-r %*% Age}) ) +
+geom_hline(yintercept = coef(fit_mode)['Lmin'],  color = "darkred") +
+theme_bw(base_size=9)+
+scale_x_continuous(expand = c(0,0), limits=c(0,32000))+
+  scale_color_manual(name = "",values = c( '95% PI' = "gray40"))+
+scale_fill_manual('', values = c("95% CI" = "lightblue3"))
+p_mode
+```
+
+### 4.4.4 Characterisitc Values
+```{r}
+#time to reach 99% saturation
+(-1/coef(fit_mode)['lambda'])*log(0.01)
+```
+### 4.4.5 Residuals
+```{r}
+mode_res=ggplot(plottable_mode, aes(x=median_age_yrs_bf_1950, y=residual, color=genus))+
+geom_point(shape=4)+
+geom_hline(yintercept=0)+
+theme_bw(base_size = 9)+
+labs(x='Nominal Age (Years BP)', y='Residual',subtitle='Mode Read Length vs. Age Model')+
+scale_color_manual("Genus", values =c( "darkred",   "lightblue3",    '#009E73',    "darkorchid",   "blue4",'#E66101'),
+                  labels = c("Cand. Methylomirabilis", "Cand. Nitrosotenuis", "Conexibacter", "Nitrosotalea", "Nitrospira", "Piscinibacter"))
+mode_res
+ 
+```
+
+## 4.5 1/lambda over age - mean overhang length
+### 4.5.1 Fit
+```{r}
+plottable_overhangs <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'mapdamage_lambda', 'genus', 'sample', 'gc_gc')]
+
+fit_overhangs <- nls(1/mapdamage_lambda ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_overhangs,
+start = list(b = 2, r = 0.0001, a=2),
+control = nls.control(maxiter = 100, warnOnly = TRUE))
+
+summary(fit_overhangs)
+```
+### 4.5.2 Confidence and prediction intervals
+```{r,message=FALSE}
+# Confidence interval (mean curve)
+CI_overhangs = predictNLS(fit_overhangs, newdata = data.frame(median_age_yrs_bf_1950=plottable_overhangs$median_age_yrs_bf_1950 ), interval = "confidence", alpha = 0.05, nsim = 10000)$summary
+
+# Prediction interval (new observation)
+PI_overhangs= predictNLS(fit_overhangs, newdata =data.frame(median_age_yrs_bf_1950=plottable_overhangs$median_age_yrs_bf_1950), interval = "prediction", alpha = 0.05, nsim = 10000)$summary
+```
+
+### 4.5.3 Plot
+```{r}
+plottable_overhangs$fitted = predict(fit_overhangs)
+plottable_overhangs$residual = residuals(fit_overhangs)
+plottable_overhangs$CI_lower <- CI_overhangs[, "Sim.2.5%"]
+plottable_overhangs$CI_upper <- CI_overhangs[, "Sim.97.5%"]
+plottable_overhangs$PI_lower <- PI_overhangs[, "Sim.2.5%"]
+plottable_overhangs$PI_upper <- PI_overhangs[, "Sim.97.5%"]
+
+
+p_lambda= ggplot(plottable_overhangs,aes(x=median_age_yrs_bf_1950))+
+  geom_line(aes(y = PI_lower,color='95% PI'),linetype='twodash')+
+  geom_line(aes(y= PI_upper,color='95% PI'),linetype='twodash')+
+  geom_ribbon(aes(x = median_age_yrs_bf_1950,
+                  ymin = CI_lower, ymax = CI_upper, fill = "95% CI"), alpha=0.5) +
+geom_point(aes(x=median_age_yrs_bf_1950, y=1/mapdamage_lambda),shape=4, color='gray40')+
+geom_line(aes(x=median_age_yrs_bf_1950, y=fitted))+
+geom_hline(yintercept=(coef(fit_overhangs)['b'])+coef(fit_overhangs)['a'], colour='darkred')+
+theme_bw(base_size = 9)+
+scale_x_continuous(expand = c(0,0), limits=c(0,32000))+
+  scale_color_manual(name = "",values = c( '95% PI' = "gray40"))+
+scale_fill_manual('', values = c("95% CI" = "lightblue3"))+
+labs(
+caption = expression("Fit: " ~ frac(1, lambda) == a + b %*% (1 - e^{-r %*% Age})),
+y=expression("Mean Overhang length "* 1/lambda*" (bp)"), 
+x = "Nominal Age (Years BP)")
+p_lambda
+```
+### 4.5.4 Characteristic values
+```{r}
+#saturation value
+coef(fit_overhangs)['b']+coef(fit_overhangs)['a']
+```
+```{r}
+#time to 99% saturation
+(-1/coef(fit_overhangs)['r'])*log(0.01)
+```
+### 4.5.5 Residuals
+```{r}
+lambda_res=ggplot(plottable_overhangs, aes(x=median_age_yrs_bf_1950, y=residual, color=genus))+
+geom_point(shape=4)+
+geom_hline(yintercept=0)+
+theme_bw(base_size = 9)+
+labs(x='Nominal Age (Years BP)', y='Residual', subtitle=expression(~1/lambda*' vs. Age Model'))+
+scale_color_manual("Genus", values =c( "darkred",   "lightblue3",    '#009E73',    "darkorchid",   "blue4",'#E66101'),
+                  labels = c("Cand. Methylomirabilis", "Cand. Nitrosotenuis", "Conexibacter", "Nitrosotalea", "Nitrospira", "Piscinibacter"))
+lambda_res
+```
+
+## 4.6 Screening for influence of GC content and cell wall morphology
+```{r}
+residuals_overview=list(plottable_delta_s,plottable_mode,plottable_overhangs,plottable_pgeom,plottable_pmax)
+```
+
+```{r}
+# Function to summarize a single model data frame by genus
+summarize_by_genus <- function(df) {
+  df %>%
+    group_by(genus) %>%
+    summarise(
+      mean_gc = median(gc_gc, na.rm = TRUE),
+      sd_gc=sd(gc_gc, na.rm=TRUE),
+      mean_resid = median(residual, na.rm = TRUE),
+      sd_resid=sd(residual, na.rm=TRUE),
+      .groups = 'drop'
+    ) %>% 
+    mutate(
+      cell_wall = case_when(
+        genus == "conexibacter" ~ "gram_pos",
+        genus %in% c("nitrosotalea", "candidatus_nitrosotenuis") ~ "archaeon",
+        TRUE ~ "gram_neg"
+      ))}
+# Apply the summarization to all models
+genus_summary_list <- lapply(residuals_overview, summarize_by_genus)
+```
+
+```{r}
+plot_genus_model = function(genus_summary_list) {
+  labels = c(expression(delta[s]), "Mode Fragment Length",expression(1 / lambda),expression(p[geom]), expression(p[max]))
+  
+  results = vector("list", length(genus_summary_list))
+  for (i in seq_along(genus_summary_list)) {
+    df = genus_summary_list[[i]]
+    results[[i]] = ggplot(
+      df,aes(x = mean_gc, y = mean_resid, color = cell_wall, group=1)) +
+       geom_smooth( method = "lm",formula = y ~ x,se = FALSE, aes(group = 1), color = "black", linewidth = 0.4)+
+      geom_point(size = 2) +
+      geom_errorbar(aes(ymin = mean_resid - sd_resid,  ymax = mean_resid + sd_resid),width = 0) +
+      geom_errorbarh(aes(xmin = mean_gc - sd_gc,xmax = mean_gc + sd_gc),height = 0) +
+      labs(x = "Mean GC content",y = "Mean residual", title = labels[i]
+      ) +
+      theme_bw(base_size = 9)+
+      scale_color_manual('Cell Wall Morphology', values = c('gram_pos'='lightblue3','archaeon'='darkred','gram_neg'='gray40' ),labels=c('gram_pos'='gram+','gram_neg'= 'gram-', 'archaeon'='archaeal'))
+  }
+  return(results)
+}
+# Apply to all models in your list
+results_list = plot_genus_model(genus_summary_list)
+results_list[[1]]
+
+```
+
+
+# 5. Application of p_max-age-model for absolute age prediction
+```{r}
+test_genera_w=test_genera_w[test_genera_w$median_age_yrs_bf_1950 <32000,]
+```
+
+## 5.1 Overview of test data
+
+```{r, fig.width=8, fig.height=4}
+overview=ggplot(test_genera_w)+
+  geom_point(data=test_genera_w,aes(x=median_age_yrs_bf_1950, y=pydamage_pmax), shape=4, size=2, color='gray40')+
+  geom_point(data=test_genera_w[test_genera_w$pydamage_pmax >=coef(fit_pmax)['b']+coef(fit_pmax)["a"]|test_genera_w$pydamage_pmax <= coef(fit_pmax)["a"] ,],aes(x=median_age_yrs_bf_1950, y=pydamage_pmax), shape=4, color='darkred')+
+  theme_bw(base_size = 9)+
+  geom_hline(yintercept = c(coef(fit_pmax)['b']+coef(fit_pmax)['a'],coef(fit_pmax)['a']) )+
+  geom_line(data= plottable_pmax, aes(x = median_age_yrs_bf_1950, y = fitted),linewidth=1)+
+   geom_line(data= plottable_pmax, aes(x = median_age_yrs_bf_1950,y = PI_lower),linetype='twodash')+
+  geom_line(data= plottable_pmax, aes(x = median_age_yrs_bf_1950,y= PI_upper),linetype='twodash')+
+labs(
+y=expression(p[max]), x = "Mean Age (Years BP)")
+overview
+```
+
+Pseudobins exceeding the range of the model:
+```{r}
+sum(test_genera_w$pydamage_pmax >=coef(fit_pmax)['b']+coef(fit_pmax)["a"]|test_genera_w$pydamage_pmax <= coef(fit_pmax)["a"] )
+```
+
+
+## 5.2 Model inversion and age prediction
+
+```{r}
+invert_age = function(pmax, a, b, r) {
+  # Return NA if pmax outside model range
+  if(pmax <= a | pmax >= (a + b)) return(NA)
+  -1 / r * log(1 - (pmax - a)/b)
+}
+```
+```{r}
+predict_age_from_pmax <- function(df, pmax_col, model, B = 1000, seed = 1963) {
+  set.seed(seed)
+  
+  # Extract parameter estimates and covariance
+  params_est = coef(model)
+  cov_mat = vcov(model)
+  sigma_resid = summary(model)$sigma
+  
+  # Prepare storage vectors
+  n = nrow(df)
+  age_point = numeric(n)
+  age_ci_lower <- numeric(n)
+  age_ci_upper <- numeric(n)
+  age_pi_lower = numeric(n)
+  age_pi_upper = numeric(n)
+  age_pi_bootstrap = vector("list", n)
+  
+  for(i in 1:n) {
+    pmax = df[[pmax_col]][i]
+#Point estimate
+    age_point[i] = invert_age(pmax, params_est["a"], params_est["b"], params_est["r"])
+    
+#CI: parametric bootstrap without residual noise
+    param_samples <- mvrnorm(B, mu = params_est, Sigma = cov_mat)
+    age_boot_ci <- sapply(1:B, function(j) {
+      invert_age(pmax, param_samples[j, "a"], param_samples[j, "b"], param_samples[j, "r"])
+    })
+    age_boot_ci <- age_boot_ci[!is.na(age_boot_ci)]
+    age_ci_lower[i] <- quantile(age_boot_ci, 0.025)
+    age_ci_upper[i] <- quantile(age_boot_ci, 0.975)
+#PI: parametric bootstrap with residual noise
+    param_samples = mvrnorm(B, mu = params_est, Sigma = cov_mat)
+    age_boot_pi = sapply(1:B, function(j) {
+      a_j = param_samples[j, "a"]
+      b_j = param_samples[j, "b"]
+      r_j = param_samples[j, "r"]
+# simulate new noisy observation
+      y_j = rnorm(1, mean = pmax, sd = sigma_resid)
+      invert_age(y_j, a_j, b_j, r_j)
+    })
+    age_boot_pi = age_boot_pi[!is.na(age_boot_pi)]
+    age_pi_lower[i] = quantile(age_boot_pi, 0.025)
+    age_pi_upper[i] = quantile(age_boot_pi, 0.975)
+    age_pi_bootstrap[[i]] = age_boot_pi
+  }
+  
+# Append results to data frame
+  df$age_point = age_point
+  df$age_CI_lower <- age_ci_lower
+  df$age_CI_upper <- age_ci_upper
+  df$age_PI_lower = age_pi_lower
+  df$age_PI_upper = age_pi_upper
+  df$age_PI_bootstrap = age_pi_bootstrap
+  return(df)
+}
+```
+
+```{r}
+test_genera_dated = predict_age_from_pmax(test_genera_w, "pydamage_pmax", fit_pmax, B = 2000)
+head(test_genera_dated)
+```
+
+
+## 5.3 Point estimates and prediction intervals
+Point estimates fall somewhere to the line of identity when comparing with rock ages, but further back in time the scatter increases. The prediction intervals are very wide, especially for p_max near the asymptote.
+
+```{r, fig.width=7, fig.height=3.5}
+ggplot(test_genera_dated[!is.na(test_genera_dated$age_point),], aes(x=median_age_yrs_bf_1950, y=age_point, group=genus))+
+  geom_errorbar(aes(ymin=age_PI_lower, ymax=age_PI_upper, color=genus))+
+  geom_point(shape=4)+
+  theme_bw(base_size=9)+
+  geom_abline(intercept = 0, slope = 1, color="black")+
+  labs(y='Modelled age', x='Nominal age')+
+   scale_color_manual("Genus", values =c( "darkred",   "lightblue3",    '#009E73',    "darkorchid",   "blue4",'#E66101'))+
+  facet_wrap(~genus,labeller = labeller(genus = function(x) tools::toTitleCase(x)))+
+  theme(legend.position = 'none')
+```
+
+```{r}
+scatter=ggplot(test_genera_dated[!is.na(test_genera_dated$age_point),], aes(x=median_age_yrs_bf_1950, y=age_point, group=genus, color=age_PI_upper-age_PI_lower))+
+  geom_point(shape=4)+
+  theme_bw(base_size=9)+
+  geom_abline(intercept = 0, slope = 1, color="black")+
+  labs(y='Modelled Age (Years BP)', x='Nominal Age (Years BP)')+
+  theme(legend.position='inside',legend.position.inside = c(0.18, 0.75), legend.key.height = unit(1, "lines"),legend.background = element_rect(fill = "transparent", colour = NA),
+legend.box.background = element_rect(fill = "transparent", colour = NA))+
+  scale_color_gradientn(colors = c( "black", 'gray40','gray70',"darkred", 'orangered' ),
+                        values = scales::rescale(c(5000, 10000, 15000, 20000, 30000), to = c(0,1)),
+    breaks  = c(5000, 10000, 15000, 20000, 30000),
+    labels  = c('5000', '10000', '15000', '20000', '30000'),
+    name = "95% PI width\n(Years)",
+    limits  = c(1500, 35000)) 
+scatter
+ 
+```
+
+```{r, fig.width=3.5, fig.height=1.75}
+modelled=ggplot(test_genera_dated[!is.na(test_genera_dated$age_point),], aes(x=pydamage_pmax, y=age_point))+
+  geom_errorbar(aes(ymin=age_PI_lower, ymax=age_PI_upper), color='lightblue3', linewidth=0.1)+
+  geom_point(shape=4, color='gray40')+
+  theme_bw(base_size = 9)+
+  labs(x=expression(p[max]), y='Modelled Age (Years BP)')
+modelled
+```
+
+
+
+```{r}
+test_genera_dated[!is.na(test_genera_dated$age_point),] %>% summarise(MAE=mean(abs(median_age_yrs_bf_1950 - age_point)), MRSE=sqrt(mean(abs(median_age_yrs_bf_1950 - age_point)^2)))
+```
+
+```{r}
+cor.test(test_genera_dated$age_point, test_genera_dated$median_age_yrs_bf_1950, method='spearman')
+```
+
+
+# 6. Fit logit model for probabilisitic age ranking based on p_max_differences
+## 6.1 constructing paired datasets
+#### Training data
+```{r}
+pairs_train = data_w[data_w$median_age_yrs_bf_1950<32000,] %>%
+  dplyr::select(sample,median_age_yrs_bf_1950, pydamage_pmax) %>%
+  rename_with(~ paste0(.x, "_i")) %>%
+  crossing(
+    data_w[data_w$median_age_yrs_bf_1950<32000,] %>%
+      dplyr::select(sample, median_age_yrs_bf_1950, pydamage_pmax) %>%
+      rename_with(~ paste0(.x, "_j"))) %>%
+  filter(sample_i != sample_j) %>%
+  mutate(
+    delta_pmax = pydamage_pmax_j - pydamage_pmax_i,
+    y_ij = as.integer(median_age_yrs_bf_1950_j > median_age_yrs_bf_1950_i))
+```
+```{r, fig.width=3.5}
+hist=ggplot(pairs_train, aes(x=delta_pmax, fill=as.factor(y_ij)))+
+  geom_histogram(alpha=0.2,position = 'identity', binwidth=0.01)+
+  theme_bw(base_size = 9)+
+  scale_fill_manual(values=c('gray40','darkred'))+
+  scale_x_continuous(expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0))+
+  labs(x = expression(p[max*','*j]*' - '*p[max*','*i] ), y='Count')+
+  theme(legend.position='none')+
+  annotate('text', x = 0.3, y = 1500, label = expression(Age[j]*'>'*Age[i]), size=3, color='darkred')+
+  annotate('text', x = -0.3, y = 1500, label = expression(Age[j]*'<'*Age[i]), size=3, color='gray40')
+hist
+```
+
+#### Test data
+```{r}
+pairs_test <- test_genera_w %>%
+  dplyr::select(sample, median_age_yrs_bf_1950, pydamage_pmax) %>%
+  rename_with(~ paste0(.x, "_i")) %>%
+  tidyr::crossing(
+    test_genera_w %>%
+      dplyr::select(sample, median_age_yrs_bf_1950, pydamage_pmax) %>%
+      rename_with(~ paste0(.x, "_j"))) %>%
+  filter(sample_i != sample_j) %>%
+  mutate(
+    y_ij = as.integer(median_age_yrs_bf_1950_j > median_age_yrs_bf_1950_i),
+    delta_pmax = pydamage_pmax_j - pydamage_pmax_i)
+```
+## 6.2 fitting logit model 
+```{r}
+pmax_logit = glm(
+  y_ij ~ delta_pmax,
+  family = binomial(),
+  data = pairs_train
+)
+summary(pmax_logit)
+```
+
+### 6.2.1 bootstrapping confidence band
+```{r}
+bootstrap_pairwise_by_genus_sample <- function(
+  data,
+  time_col = "median_age_yrs_bf_1950",
+  damage_col = "pydamage_pmax",
+  sample_col = "sample",
+  genus_col = "genus",
+  R = 100,
+  seed = 1963) {
+  set.seed(seed)
+ #construct pairs from data
+  all_pairs <- data %>%
+    rename_with(~ paste0(.x, "_i")) %>%
+    crossing(
+      data %>% rename_with(~ paste0(.x, "_j"))
+    ) %>%
+    filter(!!sym(paste0(sample_col, "_i")) != !!sym(paste0(sample_col, "_j"))) %>%
+    mutate(delta_pmax = !!sym(paste0(damage_col, "_j")) - !!sym(paste0(damage_col, "_i")))
+#define range of delta_pmax  
+  delta_seq <- seq(
+    min(all_pairs$delta_pmax),
+    max(all_pairs$delta_pmax),
+    length.out = 100)
+  # Precompute unique levels and their row indices
+  genus_levels = unique(data[[genus_col]])
+  sample_levels = unique(data[[sample_col]])
+  genus_index_list = lapply(genus_levels, function(g) which(data[[genus_col]]  == g))
+  sample_index_list = lapply(sample_levels, function(s) which(data[[sample_col]] == s))
+  # Container for predictions
+  pred_matrix <- matrix(NA, nrow = R, ncol = length(delta_seq))
+  for (r in seq_len(R)) {
+    ## 1) Resample genus *clusters* by index, with replacement
+    g_ids = sample(seq_along(genus_levels),
+                    size = length(genus_levels),
+                    replace = TRUE)
+    ## 2) Resample sample *clusters* by index, with replacement
+    s_ids = sample(seq_along(sample_levels),
+                    size = length(sample_levels),
+                    replace = TRUE)
+    ## 3) Get the row indices for the resampled clusters
+    rows_g = unlist(genus_index_list[g_ids])
+    rows_s = unlist(sample_index_list[s_ids])
+    ## 4) Intersection: rows that belong to both a resampled genus and sample
+    rows_keep = intersect(rows_g, rows_s)
+    d_resample = data[rows_keep, , drop = FALSE]
+    if (nrow(d_resample) < 2) {
+      next  # skip iteration if not enough data
+    }
+    #build pairs and fit glm based on resampled data
+    pairs = d_resample %>%
+      rename_with(~ paste0(.x, "_i")) %>%
+      tidyr::crossing(
+        d_resample %>% rename_with(~ paste0(.x, "_j"))
+      ) %>%
+      dplyr::filter(.data[[paste0(sample_col, "_i")]] != .data[[paste0(sample_col, "_j")]]) %>%
+      dplyr::mutate(
+        delta_pmax = .data[[paste0(damage_col, "_j")]] -.data[[paste0(damage_col, "_i")]],
+        y_ij = as.integer(.data[[paste0(time_col, "_j")]] >.data[[paste0(time_col, "_i")]]))
+    if (nrow(pairs) == 0) {
+      next}
+    mod = glm(y_ij ~ delta_pmax, family = binomial(), data = pairs)
+    pred_matrix[r, ] = predict(mod,newdata = data.frame(delta_pmax = delta_seq),type = "response") }
+# Compute 95% CI from pred_matrix
+ci = apply(pred_matrix, 2, function(x) quantile(x, c(0.025, 0.975), na.rm = TRUE))
+ci_df = data.frame(
+  delta_pmax = delta_seq,
+  lwr = ci[1, ],
+  upr = ci[2, ],
+  fit = apply(pred_matrix, 2, mean, na.rm = TRUE))
+# Return complete results
+list(bootstrap_predictions = pred_matrix,ci_df = ci_df)}
+```
+```{r}
+result_two_way = bootstrap_pairwise_by_genus_sample(data = data_w[data_w$median_age_yrs_bf_1950 < 32000, ],R = 500)
+```
+
+### 6.2.2 Plot
+```{r}
+plottable_logit=result_two_way$ci_df %>% mutate(orig_pred = predict(pmax_logit, 
+                    newdata = data.frame(delta_pmax = .$delta_pmax), 
+                    type = "response"))
+```
+```{r}
+find_cutoff_crossing <- function(df, p) {
+  df %>%
+    filter(orig_pred >= p | lwr >= p | upr >= p) %>%
+    summarise(
+      prob = p,
+      delta_pmax_fit = min(delta_pmax[orig_pred >= p], na.rm = TRUE),
+      delta_pmax_lwr = min(delta_pmax[lwr >= p], na.rm = TRUE),
+      delta_pmax_upr = min(delta_pmax[upr >= p], na.rm = TRUE)
+    )
+}
+
+cut_095 <- find_cutoff_crossing(plottable_logit, 0.95)
+cut_075 <- find_cutoff_crossing(plottable_logit, 0.75)
+
+bind_rows(cut_095, cut_075)
+```
+
+```{r}
+Scurve=ggplot(plottable_logit, aes(x = delta_pmax)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = "lightblue3", alpha = 0.5) +
+  geom_line(aes(x = delta_pmax, y = orig_pred), linewidth=0.5)+
+  labs(x = expression(p[max*','*j]*' - '*p[max*','*i] ), y = expression('P('*Age[j]*'>'*Age[i]*')')) +
+  scale_x_continuous(expand=c(0,0))+
+  theme_bw(base_size = 9)
+```
+## 6.3 Application of logit-model
+ 
+```{r}
+pairs_test$pred_prob <- predict(
+  pmax_logit ,
+  newdata = pairs_test,
+  type = "response"
+)
+```
+### 6.3.1 ROC
+```{r}
+roc_obj <- roc(
+  response = pairs_test$y_ij,
+  predictor = pairs_test$pred_prob
+)
+```
+```{r}
+auc_value <- auc(roc_obj)
+auc_value
+```
+```{r}
+roc_df <- data.frame(
+  specificity = roc_obj$specificities,
+  sensitivity = roc_obj$sensitivities
+) %>%
+  mutate(
+    fpr = 1 - specificity
+  )
+
+roc=
+  ggplot(roc_df, aes(x = fpr, y = sensitivity)) +
+  geom_line(color = "black", size = 1) +
+  geom_abline(slope = 1, intercept = 0,
+              linetype = "dashed", color = "grey50") +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  labs(
+    x = "False Positive Rate",
+    y = "True Positive Rate") +
+  theme_bw(base_size = 9)+
+  annotate( "text",x = 0.6, y = 0.2,label = paste0("AUC = ", round(auc_value, 3)),size = 3)+
+  coord_fixed()
+roc
+```
+### 6.3.2 Classification threshold
+```{r}
+coords(roc_obj, "best", ret = c("threshold","sensitivity", "specificity"), best.method="youden")
+```
+
+```{r}
+qlogis(c(0.5)) / coef(pmax_logit)['delta_pmax']
+```
+0.5 is the most suited threshold for class separation, this corresponds to a delta_pmax of 0 (as expected for logit model)
+
+```{r}
+pairs_test$pred_class <- pairs_test$pred_prob > 0.5
+```
+
+```{r}
+table(
+  truth = pairs_test$y_ij,
+  pred  = pairs_test$pred_class
+)
+
+mean(pairs_test$y_ij == pairs_test$pred_class)
+```
+
+```{r}
+mean((pairs_test$delta_pmax > 0) == pairs_test$y_ij)
+```
+
+### 6.3.3 Binned data approach
+
+```{r}
+pairs_test_plot <- pairs_test %>%
+  mutate( correct = as.integer((delta_pmax > 0) == (median_age_yrs_bf_1950_j>median_age_yrs_bf_1950_i)), abs_dp = abs(delta_pmax),
+      dp_bin = cut_width(abs_dp, width = 0.025, boundary = 0),include.lowest = TRUE)%>% 
+ mutate(correct = factor(correct, levels = c(0, 1),
+                     labels = c("Incorrect", "Correct"))) %>% 
+  group_by(dp_bin, correct) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(dp_bin) %>%
+  mutate(prop = n / sum(n))
+```
+```{r}
+bars=ggplot(pairs_test_plot, aes(x = dp_bin, y = prop, fill = correct)) +
+  geom_col(width = 0.9, alpha=0.5) +
+  labs(
+    x = expression("|"*Delta*"("*p[max]*")|"),
+    y = "Probability of correct ranking",
+    fill = NULL
+  ) +
+  scale_fill_manual(
+    values = c("Incorrect" = "darkred", "Correct" = "grey40")
+  ) +
+  theme_bw(base_size = 9) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),legend.position='none'
+  )
+bars
+```
+
+
+# 7. combined plots
+## 7.1 Figure 3
+```{r, fig.width=7, fig.height=3}
+cor + assembly+ theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank()) +
+  plot_layout(widths = c(3.5, 1))&
+   theme(plot.margin = margin(0,0,0,0))
+```
+
+## 7.2 Figure 4
+```{r, fig.width=7, fig.height=5.5}
+(p_mode | p_pgeom) / (p_lambda | p_cor)+ plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect") &  theme(legend.position = "none")
+```
+
+```{r}
+#ggsave('./figures/fig4/fig4.pdf', width=7, height=5.5, units='in')
+```
+
+## 7.3 Figure 5
+```{r, fig.width=7, fig.height=3}
+(p_deltas | p_pmax) + plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect") &  theme(legend.position = "none")
+```
+
+```{r}
+#ggsave('./figures/fig5/fig5.pdf', width=7, height=3, units='in')
+```
+
+## 7.4 Figure 6
+```{r,fig.width=7, fig.height=4}
+((overview/modelled)|scatter)+plot_annotation(tag_levels = "A")
+```
+
+## 7.5 Figure 7
+```{r, fig.width=7, fig.height=5}
+(hist | Scurve) / (roc | bars) + plot_annotation(tag_levels = "A")
+```
+## 7.6 Figure S4
+```{r, fig.width= 5, fig.height= 9}
+(delta_s_res+
+  theme(axis.title.x = element_blank()))/ 
+(pmax_res+
+   theme(axis.title.x = element_blank()))/ 
+(mode_res+
+   theme(axis.title.x = element_blank()))/ 
+(p_geom_res+
+   theme(axis.title.x = element_blank()))/ 
+lambda_res + plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect")&theme(legend.position = "bottom",  plot.margin = margin(0, 0, 0,0)) 
+
+
+ 
+```
+
+## 7.7 Figure S6 
+```{r, fig.width=7, fig.height=8}
+(results_list[[2]] | results_list[[4]])/(results_list[[3]] | results_list[[5]])/(results_list[[1]] | guide_area() )+plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect")&theme(legend.position = 'bottom')
+```
+
+
+
+
+
+
+
+
+
+
