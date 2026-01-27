@@ -1,4 +1,4 @@
-# aDNAdamage_stalagmite
+# aDNA damage along stalagmite TM-17
 In this repository we provide the code used to analyse the data leading to the manuscript
 
 Microbial DNA decay within stalagmites preserves a molecular record of time
