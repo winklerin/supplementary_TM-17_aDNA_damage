@@ -1,6 +1,6 @@
 Input:
 
-- QUAST output files from nf-core/MAG. They are deposited on zenodo as zip archive assembly_stats.zip
+- Assembly_stats.zip
 
 Output:
 
