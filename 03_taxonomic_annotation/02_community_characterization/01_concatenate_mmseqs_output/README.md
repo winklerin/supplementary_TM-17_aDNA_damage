@@ -1,7 +1,7 @@
 Input:
 
-- mmseqs output folder of the nf-mmseqs: MMSeqs_Contig_Taxonomy
-- pydamage output from nf-core/MAG: Pydamage_Full
+- MMSeqs_Contig_Taxonomy.zip
+- Pydamage_Full.zip
 - summarized_age_model.csv
 
 Output:
