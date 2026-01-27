@@ -6,7 +6,7 @@ Input Data:
 
 Output data:
 
-- Summarized age model assigning a nominal age to each rock cube
+- Summarized age model assigning a nominal age to each rock cube: summarized_age_model.csv
 
 Contributions to Figures:
 
