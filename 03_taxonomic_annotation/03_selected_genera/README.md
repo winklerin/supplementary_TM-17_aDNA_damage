@@ -1,7 +1,10 @@
-This notebook documents the selection of core genera (used for modelling of age damage relationship) and test genera (used for model testing). 
-
 Input data:  
-- contig taxonomic annotation
-- unfiltered pydamage output from nf-core/MAG run
 
- For both groups it generates genomes.csv and bams.csv as samplesheets for the damage inference (see 04_damage_inference). Also it extracts the contigs with the selected taxonomic annotation into .fa files. File paths are not changed to run the notebook directly.
+- PyDamage_full.zip
+- MMSeqs_Contig_Taxonomy.zip
+
+Output
+- Pseudobins_Core_Genera.zip
+- Pseudobins_Test_Genera.zip
+- genomes.csv for both test and core genera
+- bams.csv for both test and core genera
