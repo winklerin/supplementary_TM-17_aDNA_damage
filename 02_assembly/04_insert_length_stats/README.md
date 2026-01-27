@@ -1,8 +1,10 @@
 Input 
 
-- fastp output from nf-core/MAG
+- fastp.zip
 
 Output
+
+- none
 
 Contribution to Figures
 
