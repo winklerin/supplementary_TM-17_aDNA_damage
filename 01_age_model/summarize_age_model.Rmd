@@ -1,10 +1,14 @@
 ---
 title: "Summarizing the age model"
 output:
-  pdf_document: default
+  html_document:
+    df_print: paged
   html_notebook: default
+  pdf_document: default
 ---
-Kathleen Johnson provided us with an age model for the stalagmite. The stalagmite was dated every 0.25 mm. As our subsamples were collected at ~1cm intervals, I need to summarize the age data
+The stalagmite was dated every 0.25 mm. As our subsamples were collected at ~1cm intervals, I need to summarize the age data
+
+
 # packages
 ```{r}
 library(tidyverse)
@@ -15,12 +19,12 @@ packageVersion('tidyverse')
 
 # load age model
 ```{r}
-age_model_RAW=read.csv2('./input/TM17_Age_Model.csv', skip=3, col.names = c('mm_from_top', 'cm_from_top', 'age_yrs_bf_1950', 'age_yrs_bf_1950_upper_CI', 'age_yrs_bf_1950_lower_CI')) %>% filter(if_any(everything(), ~ !is.na(.x)))
+age_model_RAW=read.csv('TM17_Stalagmite_Age_Model.csv', skip=1, col.names = c( 'cm_from_top', 'age_yrs_bf_1950', 'age_yrs_bf_1950_upper_CI', 'age_yrs_bf_1950_lower_CI')) %>% filter(if_any(everything(), ~ !is.na(.x)))
 ```
 # load rock cube intervals
 The length of the rock cubes was measured from calibrated images in imageJ and rounded to multiples of 0.25cm. We have mostly 1cm intervals with a few exceptions.
 ```{r}
-intervals=read.csv('./input/Rock_Cube_Sizes_from_imageJ.csv', sep=';')
+intervals=read.csv('Rock_Cube_Sizes_from_imageJ.csv', sep=';')
 ```
 Because of the rounding the intervals reach just to 60.5 cm. I'm setting the lower boundary of the bottom subsample to the oldest layer of the age model to cover the whole age model.
 ```{r}
@@ -47,8 +51,7 @@ p=ggplot(age_model_RAW)+
 p
 ```
 ```{r}
-ggsave('../../06_figures/Fig1/D.pdf', height = 5, width = 1.7, units = "in")
-saveRDS(p, '../../06_figures/Fig1/D.rds')
+saveRDS(p, '../06_figures/Fig1/D.rds')
 ```
 
 # summarize age model
@@ -73,7 +76,7 @@ age_model_summarized=age_model_RAW %>%
 
 # save summarized age model
 ```{r}
-write.table(age_model_summarized, './output/2025-11-26_summarized_age_model.csv', quote = F, row.names = F)
+write.table(age_model_summarized, 'summarized_age_model.csv', quote = F, row.names = F)
 ```
 
 # Some statistics on the age intervals

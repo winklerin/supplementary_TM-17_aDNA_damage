@@ -1,10 +1,9 @@
 ---
 title: "aDNA damage analysis"
 output:
-  pdf_document: default
   html_document:
     df_print: paged
-bibliography: "grateful-refs.bib"
+  pdf_document: default
 ---
 # 1. Preparations
 # 1.1 Packages
@@ -28,7 +27,7 @@ I worked with a training data set (data) to explore trends and fit models and a 
 
 #### Training data
 ```{r}
-data=read.csv('/home/lucia_winkler/speleothem/speleothem-analysis/reference_free_analysis/nf-damage-inference/results/2025-11-26_damage_data.csv')
+data=read.csv('damage_data_core_genera.csv')
 ```
 ```{r}
 data_w = pivot_wider(data[,-c(3:4)],
@@ -40,7 +39,7 @@ data_w$qPCRcopies_per_uL_and_mg_rock=data_w$qPCRcopies_per_uL/data_w$mass_mg
 ```
 #### Test data
 ```{r}
-test_genera = read_csv("/home/lucia_winkler/speleothem/speleothem-analysis/reference_free_analysis/nf-damage-inference/results/2025-11-26_damage_data_test_genera.csv")
+test_genera = read_csv("damage_data_test_genera.csv")
 ```
 ```{r}
 test_genera_w = pivot_wider(test_genera[,-c(3:4)],

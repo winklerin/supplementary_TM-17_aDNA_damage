@@ -1,16 +1,12 @@
 ---
 title: "TPM based community structure of stalagmite TM-17"
 output:
-  pdf_document: default
   html_document:
     df_print: paged
+  pdf_document: default
 ---
 In this notebook I run and visualize a PCA on the taxonomic composition of the TM-17 aDNA assemblies and extraction 
 # 1. Preparations
-```{r}
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-getwd()  # check it worked
-```
 
 ## 1.1 Loading packages
 ```{r}
@@ -25,7 +21,7 @@ packageVersion('patchwork')
 ```
 ## 1.2 Loading data (prepared in python)
 ```{r}
-data=read.csv("../01_concatenate_mmseqs_output/2025-10-07_contig_tax_tpm.csv", sep=';')
+data=read.csv("contig_tax_tpm.csv", sep=';')
 ```
 
 
@@ -184,7 +180,7 @@ set.seed(6397)
 #write.csv(results_high_perm, file = "results_high_perm.csv", row.names = FALSE)
 ```
 ```{r}
-results_high_perm=read.csv("./results_high_perm.csv")
+results_high_perm=read.csv("results_high_perm.csv")
 ```
 
 ## 3.5 Plot Volcano plot
@@ -244,9 +240,11 @@ t
 
 ```{r}
 S1= data %>% group_by(taxID,taxon, rank,kingdom,phylum,class,order,family,genus,species,sample) %>% summarize(summed_TPM=sum(tpm))%>% mutate(across(where(is.character), ~ifelse(. == "", "unclassified", .)))%>% pivot_wider(names_from = sample, values_from = summed_TPM, values_fill = 0,values_fn = sum) %>% mutate(across(where(is.numeric), ~replace_na(., 0))) %>% ungroup() %>% as.data.frame()
+
+S1
 ```
 ```{r}
-write.csv(S1, file = "../../../07_overview_tables/S1_tax_overview.csv", row.names = FALSE)
+write.csv(S1, file = "S1_tax_overview.csv", row.names = FALSE)
 ```
 
 

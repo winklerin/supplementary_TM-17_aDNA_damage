@@ -1,8 +1,10 @@
 ---
 title: "Assembly Overview"
 output:
-  pdf_document: default
+  html_document:
+    df_print: paged
   html_notebook: default
+  pdf_document: default
 ---
 ```{r}
 library(tidyverse)
@@ -13,11 +15,11 @@ I'm aggregating the QUAST output of the assemblies of the different layers
 
 # 1. Loading data
 ```{r}
-names=sort(list.files('./input/nf-coreMAG/Assembly/MEGAHIT/QC/'))
+names=sort(list.files('./assembly_stats/'))
 ```
 ```{r}
 data_list <- lapply(names, function(file) {
-  read.csv(paste0('./input/nf-coreMAG/Assembly/MEGAHIT/QC/',file,'/QUAST/report.tsv'), sep = "\t", header = TRUE, row.names = 1, check.names = FALSE)
+  read.csv(paste0('./assembly_stats/',file,'/QUAST/report.tsv'), sep = "\t", header = TRUE, row.names = 1, check.names = FALSE)
 })
 ```
 ```{r}
@@ -52,12 +54,10 @@ colnames(data)[colnames(data) %in% names(name_dict)] <-
   name_dict[colnames(data)[colnames(data) %in% names(name_dict)]]
 ```
 ```{r}
-write.table(data, './output/assembly_stats.csv', quote = F, row.names = F)
+data
 ```
 
-```{r}
-summary(data[10:70,])
-```
+
 
 # 2. Plots
 ```{r}
@@ -82,7 +82,7 @@ p1= data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$categ
    geom_segment( aes(y=depth_cm-0.5, yend=depth_cm-0.5, x=data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='EXB',]$value %>% max(), xend=value), color="grey40") +
   geom_point( color="grey40", size=1.5)+
   geom_vline(xintercept = data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='EXB',]$value %>% max(), color='darkred')+
-   scale_y_reverse( breaks = seq(1, 61, 1), labels=ifelse(1:61 %% 5 == 0, 1:61, ""), limits = c(61,0),expand = c(0, 0))+
+   scale_y_reverse( breaks = seq(1, 61, 1), labels=ifelse(1:61 %% 5 == 0, 1:61, ""), limits = c(61,-3),expand = c(0, 0))+
   theme_classic(base_size = 9)+
   theme(axis.text.x = element_text(angle = 30, vjust = 0.8, hjust = 1), 
         axis.ticks.length = unit(0.1, "cm"),
@@ -92,7 +92,6 @@ p1= data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$categ
 p1
 ```
 ```{r}
-#ggsave('../../06_figures/Fig1/F.pdf', height = 5, width=1.5, units = 'in')
 saveRDS(p1, '../../06_figures/Fig1/F.rds')
 ```
 
@@ -105,7 +104,7 @@ p2=data_long[data_long$name %in% c('L50') & data_long$category=='TDM',] %>% ggpl
   ylab('')+
   theme(axis.text.x = element_blank())
 p2
-#ggsave('../../06_figures/Fig1/G.pdf', height=2.5, width=1.2, units = 'in')
+
 saveRDS(p2, '../../06_figures/Fig1/G.rds')
 ```
 
@@ -118,7 +117,7 @@ p3=data_long[data_long$name %in% c('N50') & data_long$category=='TDM',] %>% ggpl
   ylab('')+
   theme(axis.text.x = element_blank())
 p3 
-#ggsave('../../06_figures/Fig1/H.pdf', height=2.5, width=1.2, units = 'in')
+
 saveRDS(p3, '../../06_figures/Fig1/H.rds')
 ```
 

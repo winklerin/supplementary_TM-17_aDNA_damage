@@ -1,6 +1,8 @@
 ---
 title: "Read Length Histograms TM-17"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 # Packages
@@ -12,7 +14,8 @@ packageVersion('tidyverse')
 library(ggridges)
 packageVersion('ggridges')
 ```
-#Function
+
+# Function
 ```{r}
 read_fastp_insert_sizes <- function(base_dir) {
   # Find all fastp JSON files recursively
@@ -51,12 +54,11 @@ read_fastp_insert_sizes <- function(base_dir) {
 ```
 # Extract Insert Size Histogram values from fastp output
 ```{r}
-basedir="./input"
+basedir="./fastp"
 ```
 
 ```{r}
-
-# Example usage
+#Read data
 insert_df <- read_fastp_insert_sizes(basedir)
 
 # Inspect the first few rows
@@ -65,7 +67,7 @@ head(insert_df)
 
 
 ```{r, fig.height=15 , fig.width=3}
-# 1. Filter out zero counts (optional, cleaner plot)
+# 1. Filter out zero counts (for cleaner plot)
 insert_df_filtered <- insert_df %>% filter(count > 0,grepl("^TDM", sample),insert_size >20) %>% 
    mutate(DFT = as.numeric(str_extract(sample, "(?<=TDM)\\d+")))
 
@@ -87,8 +89,7 @@ p5=ggplot() +
 p5
 ```
 ```{r}
-ggsave('../../06_figures/Fig1/X.pdf', height=5, width=2, units = 'in')
-saveRDS(p5, '../../06_figures/Fig1/X.rds')
+saveRDS(p5, '../../06_figures/Fig1/E.rds')
 ```
 
 
