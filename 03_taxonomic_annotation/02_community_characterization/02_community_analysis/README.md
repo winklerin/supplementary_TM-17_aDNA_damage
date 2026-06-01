@@ -4,8 +4,10 @@ Input
 - results_high_perm.csv (facultatively, permutation test results can also be generated de novo, but it takes >1h)
 
 Output
-- Supplementary Data 1
+
+- Supplementary Data 2
 
 Contribution to Figures
 
 - Fig 2
+- Supplementary Fig 2

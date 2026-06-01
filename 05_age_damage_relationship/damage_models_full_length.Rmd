@@ -1,0 +1,687 @@
+---
+title: "aDNA damage analysis - full data range"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+# 1. Preparations
+# 1.1 Packages
+```{r}
+library(tidyverse)
+packageVersion('tidyverse')
+library(patchwork)
+packageVersion('patchwork')
+library(ggrepel)
+packageVersion('ggrepel')
+library(propagate)
+packageVersion('propagate')
+library(pROC)
+packageVersion('pROC')
+library(scales)
+packageVersion('scales')
+library(nlstools)
+```
+# 1.2 Read the data
+
+I worked with a training data set (data) to explore trends and fit models and a test dataset (test_genera) to test the models' performance
+
+#### Training data
+```{r}
+data=read.csv('damage_data_core_genera.csv')
+```
+```{r}
+data_w = pivot_wider(data[,-c(3:4)],
+           names_from = tool_param,
+           values_from = value )
+data_w$mapdamage_1_over_lambda=1/data_w$mapdamage_lambda
+data_w$pydamage_1over_p=1/data_w$pydamage_p
+data_w$qPCRcopies_per_uL_and_mg_rock=data_w$qPCRcopies_per_uL/data_w$mass_mg
+```
+#### Test data
+```{r}
+test_genera = read_csv("damage_data_test_genera.csv")
+```
+```{r}
+test_genera_w = pivot_wider(test_genera[,-c(3:4)],
+           names_from = tool_param,
+           values_from = value )
+test_genera_w$qPCRcopies_per_uL_and_mg_rock=test_genera_w$qPCRcopies_per_uL/test_genera_w$mass_mg
+```
+
+# 2. Plot functions
+```{r}
+plot_saturation_curves=function(table, param){
+  ggplot(table, aes(x = median_age_yrs_bf_1950)) +
+    geom_ribbon(aes(x = median_age_yrs_bf_1950, ymin = CI_lower_full, ymax = CI_upper_full), alpha=0.1, fill = "darkred") +
+    geom_ribbon(aes(x = median_age_yrs_bf_1950, ymin = CI_lower_trunc, ymax = CI_upper_trunc), alpha=0.1, fill = "black") +
+  geom_line(aes(y= CI_lower_full), color="darkred", linetype='dotted')+
+  geom_line(aes(y= CI_upper_full), color="darkred", linetype='dotted')+
+   geom_line(aes(y= CI_lower_trunc), color="black", linetype='dotted')+
+  geom_line(aes(y= CI_upper_trunc), color="black", linetype='dotted')+
+  geom_point(aes(y = {{param}}), shape = 4, color='gray60', size=1) +
+  geom_line(aes(y=fitted_full), color='darkred',linetype='solid')+
+  geom_vline(xintercept = 32000, color='gray40')+
+  geom_line( aes(y = fitted_trunc), color = "black",linetype='solid')+
+  theme_bw(base_size=9)+
+  scale_x_continuous(expand = c(0,0), limits=c(0,38000))+
+  labs(x = "Nominal Age (Years BP)")
+}
+```
+
+```{r}
+plot_residuals=function(table){
+ggplot(table)+
+geom_point(aes(x=median_age_yrs_bf_1950, y=residual_full),shape=1,color="darkred", size=2)+
+geom_point(aes(x=median_age_yrs_bf_1950, y=residual_trunc),shape=16, color="black", size=1)+
+geom_hline(yintercept=0)+
+geom_vline(xintercept=32000,color='gray40')+
+geom_segment(aes(x = median_age_yrs_bf_1950, y = residual_full, xend = median_age_yrs_bf_1950, yend = residual_trunc))+
+theme_bw(base_size = 9)+
+labs(x='Nominal Age (Years BP)', y='Residual')
+}
+
+```
+
+
+
+# 3. Exponential saturation models: Damage over time
+## 3.1 delta_s over time
+### 3.1.1 Fit
+```{r}
+plottable_delta_s=data_w[,c('median_age_yrs_bf_1950', 'mapdamage_delta_s', 'genus','sample','gc_gc')]
+```
+```{r}
+fit_delta_s_trunc <- nls(mapdamage_delta_s  ~ 1 - exp(-r * median_age_yrs_bf_1950),data = plottable_delta_s[plottable_delta_s$median_age_yrs_bf_1950<32000,],start = list(r = 1e-3))
+summary(fit_delta_s_trunc)
+```
+
+```{r}
+fit_delta_s_full <- nls(mapdamage_delta_s  ~ 1 - exp(-r * median_age_yrs_bf_1950),data = plottable_delta_s,start = list(r = 1e-3))
+ summary(fit_delta_s_full)
+```
+
+### 3.1.2 Confidence and Prediction interval
+```{r,message=FALSE}
+# Prediction intervals
+#full data
+CI_delta_s_full <- predictNLS(fit_delta_s_full,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_delta_s$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+#truncated data
+CI_delta_s_trunc <- predictNLS(fit_delta_s_trunc,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_delta_s$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+```
+
+### 3.1.3 Plot
+```{r}
+plottable_delta_s$CI_lower_full <- CI_delta_s_full[, "Sim.2.5%"]
+plottable_delta_s$CI_upper_full <- CI_delta_s_full[, "Sim.97.5%"]
+plottable_delta_s$fitted_full <- predict(fit_delta_s_full)
+plottable_delta_s$residual_full=residuals(fit_delta_s_full)
+
+plottable_delta_s$CI_lower_trunc <- CI_delta_s_trunc[, "Sim.2.5%"]
+plottable_delta_s$CI_upper_trunc <- CI_delta_s_trunc[, "Sim.97.5%"]
+plottable_delta_s$fitted_trunc = predict(fit_delta_s_trunc, newdata = plottable_delta_s)
+plottable_delta_s$residual_trunc= plottable_delta_s$mapdamage_delta_s - predict(fit_delta_s_trunc, newdata = plottable_delta_s)
+
+```
+```{r}
+p_deltas=plot_saturation_curves(plottable_delta_s, mapdamage_delta_s)
+p_deltas
+```
+
+
+### 3.1.5 Residuals
+```{r}
+delta_s_res=plot_residuals(plottable_delta_s)
+
+delta_s_res
+```
+
+  
+## 3.2 pmax over time
+### 3.2.1 Fit
+```{r}
+plottable_pmax=data_w[,c('median_age_yrs_bf_1950', 'pydamage_pmax','genus', 'sample', 'gc_gc')]
+
+```
+```{r}
+# Fit the model using nls
+fit_pmax_full <- nls(pydamage_pmax  ~ a+b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_pmax,
+start = list(r = 1e-4, b=0.6,a=0.2))
+summary(fit_pmax_full)
+```
+
+```{r}
+plottable_pmax=data_w[,c('median_age_yrs_bf_1950', 'pydamage_pmax','genus', 'sample', 'gc_gc')]
+# Fit the model using nls
+fit_pmax_trunc <- nls(pydamage_pmax  ~ a+b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_pmax[plottable_pmax$median_age_yrs_bf_1950<32000,],
+start = list(r = 1e-4, b=0.6,a=0.2))
+summary(fit_pmax_trunc)
+
+```
+
+### 3.2.2 Confidence and Prediction intervals
+```{r,message=FALSE}
+# Prediction intervals
+#full data
+CI_pmax_full <- predictNLS(fit_pmax_full,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_pmax$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+#truncated data
+CI_pmax_trunc <- predictNLS(fit_pmax_trunc,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_pmax$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+
+```
+
+### 3.2.3 Plot
+```{r}
+plottable_pmax$CI_lower_full <- CI_pmax_full[, "Sim.2.5%"]
+plottable_pmax$CI_upper_full <- CI_pmax_full[, "Sim.97.5%"]
+plottable_pmax$fitted_full <- predict(fit_pmax_full)
+plottable_pmax$residual_full=residuals(fit_pmax_full)
+
+plottable_pmax$CI_lower_trunc <- CI_pmax_trunc[, "Sim.2.5%"]
+plottable_pmax$CI_upper_trunc <- CI_pmax_trunc[, "Sim.97.5%"]
+plottable_pmax$fitted_trunc = predict(fit_pmax_trunc, newdata = plottable_pmax)
+plottable_pmax$residual_trunc= plottable_pmax$pydamage_pmax - predict(fit_pmax_trunc, newdata = plottable_pmax)
+
+```
+
+
+```{r, fig.width=8, fig.height=5 }
+p_pmax=plot_saturation_curves(plottable_pmax, pydamage_pmax)
+p_pmax
+```
+
+
+### 3.2.5 Residuals
+```{r, fig.width=9}
+pmax_res=plot_residuals(plottable_pmax)
+pmax_res
+```
+
+## 3.3 p_geom over time
+### 3.3.1 Fit 
+```{r}
+plottable_pgeom <- data_w[,c('median_age_yrs_bf_1950', 'compute_length_geom_p', 'genus', 'sample','gc_gc')]
+```
+
+```{r}
+fit_pgeom_full<- nls(compute_length_geom_p ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_pgeom,
+start = list(b = 0.12, r = 0.0001, a=0.02),
+control = nls.control(maxiter = 100, warnOnly = FALSE))
+# Summary of fit
+summary(fit_pgeom_full)
+```
+```{r}
+fit_pgeom_trunc<- nls(compute_length_geom_p ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_pgeom[plottable_pgeom$median_age_yrs_bf_1950 <32000,],
+start = list(b = 0.12, r = 0.0001, a=0.02),
+control = nls.control(maxiter = 100, warnOnly = FALSE))
+summary(fit_pgeom_trunc)
+```
+
+### 3.3.2 Confidence and Predcition intervals
+```{r,message=FALSE}
+# Prediction intervals
+#full data
+CI_pgeom_full <- predictNLS(fit_pgeom_full,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_pgeom$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+#truncated data
+CI_pgeom_trunc <- predictNLS(fit_pgeom_trunc,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_pgeom$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+```
+
+### 3.3.3 Plot
+```{r}
+plottable_pgeom$CI_lower_full <- CI_pgeom_full[, "Sim.2.5%"]
+plottable_pgeom$CI_upper_full <- CI_pgeom_full[, "Sim.97.5%"]
+plottable_pgeom$fitted_full <- predict(fit_pgeom_full)
+plottable_pgeom$residual_full=residuals(fit_pgeom_full)
+
+plottable_pgeom$CI_lower_trunc <- CI_pgeom_trunc[, "Sim.2.5%"]
+plottable_pgeom$CI_upper_trunc <- CI_pgeom_trunc[, "Sim.97.5%"]
+plottable_pgeom$fitted_trunc = predict(fit_pgeom_trunc, newdata = plottable_pgeom)
+plottable_pgeom$residual_trunc= plottable_pgeom$compute_length_geom_p - predict(fit_pgeom_trunc, newdata = plottable_pgeom)
+```
+```{r}
+p_pgeom=plot_saturation_curves(plottable_pgeom, compute_length_geom_p)
+p_pgeom
+```
+
+### 3.3.5 Residuals
+
+```{r, fig.width=8}
+p_geom_res=plot_residuals(plottable_pgeom)
+p_geom_res
+```
+
+## 3.4 length mode over time
+### 3.4.1 Fit
+```{r}
+plottable_mode <- data_w[,c('median_age_yrs_bf_1950', 'compute_length_mode', 'genus', 'sample', 'gc_gc')]
+```
+```{r}
+fit_mode_full <- nls(
+compute_length_mode ~ Lmin + (L0 - Lmin) * exp(-lambda * median_age_yrs_bf_1950),
+data = plottable_mode,
+start = list(L0 = 70, Lmin = 30, lambda = 0.0001))
+
+summary(fit_mode_full)
+
+```
+```{r}
+fit_mode_trunc <- nls(
+compute_length_mode ~ Lmin + (L0 - Lmin) * exp(-lambda * median_age_yrs_bf_1950),
+data = plottable_mode[plottable_mode$median_age_yrs_bf_1950<32000,],
+start = list(L0 = 70, Lmin = 30, lambda = 0.0001))
+
+summary(fit_mode_trunc)
+```
+
+### 3.4.2 Confidence and Prediction Intervals
+```{r,message=FALSE}
+# Prediction intervals
+#full data
+CI_mode_full <- predictNLS(fit_mode_full,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_mode$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+#truncated data
+CI_mode_trunc <- predictNLS(fit_mode_trunc,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_mode$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+```
+
+### 3.4.3 Plot
+```{r}
+plottable_mode$CI_lower_full <- CI_mode_full[, "Sim.2.5%"]
+plottable_mode$CI_upper_full <- CI_mode_full[, "Sim.97.5%"]
+plottable_mode$fitted_full <- predict(fit_mode_full)
+plottable_mode$residual_full=residuals(fit_mode_full)
+
+plottable_mode$CI_lower_trunc <- CI_mode_trunc[, "Sim.2.5%"]
+plottable_mode$CI_upper_trunc <- CI_mode_trunc[, "Sim.97.5%"]
+plottable_mode$fitted_trunc = predict(fit_mode_trunc, newdata = plottable_mode)
+plottable_mode$residual_trunc= plottable_mode$compute_length_mode - predict(fit_mode_trunc, newdata = plottable_mode)
+
+```
+```{r}
+p_mode = plot_saturation_curves(plottable_mode, compute_length_mode)
+  
+p_mode
+```
+
+### 3.4.5 Residuals
+```{r}
+mode_res=plot_residuals(plottable_mode)
+mode_res
+```
+
+## 3.5 1/lambda over age - mean overhang length
+### 3.5.1 Fit
+```{r}
+plottable_overhangs <- data_w[,c('median_age_yrs_bf_1950', 'mapdamage_lambda', 'genus', 'sample', 'gc_gc')]
+```
+```{r}
+fit_overhangs_full <- nls(1/mapdamage_lambda ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_overhangs,
+start = list(b = 2, r = 0.0001, a=2),
+control = nls.control(maxiter = 100, warnOnly = TRUE))
+
+summary(fit_overhangs_full)
+```
+```{r}
+fit_overhangs_trunc <- nls(1/mapdamage_lambda ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
+data = plottable_overhangs[plottable_overhangs$median_age_yrs_bf_1950<32000,],
+start = list(b = 2, r = 0.0001, a=2),
+control = nls.control(maxiter = 100, warnOnly = TRUE))
+
+summary(fit_overhangs_trunc)
+```
+
+### 3.5.2 Confidence and prediction intervals
+```{r,message=FALSE}
+# Prediction intervals
+#full data
+CI_overhangs_full <- predictNLS(fit_overhangs_full,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_overhangs$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+#truncated data
+CI_overhangs_trunc <- predictNLS(fit_overhangs_trunc,
+                     newdata =data.frame(median_age_yrs_bf_1950=plottable_overhangs$median_age_yrs_bf_1950),interval = "confidence",alpha = 0.05,nsim = 10000)$summary
+```
+
+### 3.5.3 Plot
+```{r}
+plottable_overhangs$CI_lower_full <- CI_overhangs_full[, "Sim.2.5%"]
+plottable_overhangs$CI_upper_full <- CI_overhangs_full[, "Sim.97.5%"]
+plottable_overhangs$fitted_full <- predict(fit_overhangs_full)
+plottable_overhangs$residual_full=residuals(fit_overhangs_full)
+
+plottable_overhangs$CI_lower_trunc <- CI_overhangs_trunc[, "Sim.2.5%"]
+plottable_overhangs$CI_upper_trunc <- CI_overhangs_trunc[, "Sim.97.5%"]
+plottable_overhangs$fitted_trunc = predict(fit_overhangs_trunc, newdata = plottable_overhangs)
+plottable_overhangs$residual_trunc= 1/plottable_overhangs$mapdamage_lambda - predict(fit_overhangs_trunc, newdata = plottable_overhangs)
+```
+```{r}
+p_lambda=plot_saturation_curves(plottable_overhangs, 1/mapdamage_lambda)
+  
+ 
+p_lambda
+```
+
+
+### 3.5.5 Residuals
+```{r}
+lambda_res=plot_residuals(plottable_overhangs)
+lambda_res
+```
+
+# 4. Fit logit model for probabilisitic age ranking based on p_max_differences
+## 4.1 constructing paired datasets
+#### Training data
+```{r}
+pairs_train = data_w[data_w$median_age_yrs_bf_1950<32000,] %>%
+  dplyr::select(sample,median_age_yrs_bf_1950, pydamage_pmax) %>%
+  rename_with(~ paste0(.x, "_i")) %>%
+  crossing(
+    data_w[data_w$median_age_yrs_bf_1950<32000,] %>%
+      dplyr::select(sample, median_age_yrs_bf_1950, pydamage_pmax) %>%
+      rename_with(~ paste0(.x, "_j"))) %>%
+  filter(sample_i != sample_j) %>%
+  mutate(
+    delta_pmax = pydamage_pmax_j - pydamage_pmax_i,
+    y_ij = as.integer(median_age_yrs_bf_1950_j > median_age_yrs_bf_1950_i))
+```
+```{r, fig.width=3.5}
+hist=ggplot(pairs_train, aes(x=delta_pmax, fill=as.factor(y_ij)))+
+  geom_histogram(alpha=0.2,position = 'identity', binwidth=0.01)+
+  theme_bw(base_size = 9)+
+  scale_fill_manual(values=c('gray40','darkred'))+
+  scale_x_continuous(expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0))+
+  labs(x = expression(p[max*','*j]*' - '*p[max*','*i] ), y='Count')+
+  theme(legend.position='none')+
+  annotate('text', x = 0.3, y = 1500, label = expression(Age[j]*'>'*Age[i]), size=3, color='darkred')+
+  annotate('text', x = -0.3, y = 1500, label = expression(Age[j]*'<'*Age[i]), size=3, color='gray40')
+hist
+```
+
+#### Test data
+```{r}
+pairs_test <- test_genera_w %>%
+  dplyr::select(sample, median_age_yrs_bf_1950, pydamage_pmax) %>%
+  rename_with(~ paste0(.x, "_i")) %>%
+  tidyr::crossing(
+    test_genera_w %>%
+      dplyr::select(sample, median_age_yrs_bf_1950, pydamage_pmax) %>%
+      rename_with(~ paste0(.x, "_j"))) %>%
+  filter(sample_i != sample_j) %>%
+  mutate(
+    y_ij = as.integer(median_age_yrs_bf_1950_j > median_age_yrs_bf_1950_i),
+    delta_pmax = pydamage_pmax_j - pydamage_pmax_i)
+```
+
+## 4.2 fitting logit model 
+```{r}
+pmax_logit = glm(
+  y_ij ~ delta_pmax,
+  family = binomial(),
+  data = pairs_train
+)
+summary(pmax_logit)
+```
+
+### 4.2.1 bootstrapping confidence band
+```{r}
+bootstrap_pairwise_by_genus_sample <- function(
+  data,
+  time_col = "median_age_yrs_bf_1950",
+  damage_col = "pydamage_pmax",
+  sample_col = "sample",
+  genus_col = "genus",
+  R = 100,
+  seed = 1963) {
+  set.seed(seed)
+ #construct pairs from data
+  all_pairs <- data %>%
+    rename_with(~ paste0(.x, "_i")) %>%
+    crossing(
+      data %>% rename_with(~ paste0(.x, "_j"))
+    ) %>%
+    filter(!!sym(paste0(sample_col, "_i")) != !!sym(paste0(sample_col, "_j"))) %>%
+    mutate(delta_pmax = !!sym(paste0(damage_col, "_j")) - !!sym(paste0(damage_col, "_i")))
+#define range of delta_pmax  
+  delta_seq <- seq(
+    min(all_pairs$delta_pmax),
+    max(all_pairs$delta_pmax),
+    length.out = 100)
+  # Precompute unique levels and their row indices
+  genus_levels = unique(data[[genus_col]])
+  sample_levels = unique(data[[sample_col]])
+  genus_index_list = lapply(genus_levels, function(g) which(data[[genus_col]]  == g))
+  sample_index_list = lapply(sample_levels, function(s) which(data[[sample_col]] == s))
+  # Container for predictions
+  pred_matrix <- matrix(NA, nrow = R, ncol = length(delta_seq))
+  for (r in seq_len(R)) {
+    ## 1) Resample genus *clusters* by index, with replacement
+    g_ids = sample(seq_along(genus_levels),
+                    size = length(genus_levels),
+                    replace = TRUE)
+    ## 2) Resample sample *clusters* by index, with replacement
+    s_ids = sample(seq_along(sample_levels),
+                    size = length(sample_levels),
+                    replace = TRUE)
+    ## 3) Get the row indices for the resampled clusters
+    rows_g = unlist(genus_index_list[g_ids])
+    rows_s = unlist(sample_index_list[s_ids])
+    ## 4) Intersection: rows that belong to both a resampled genus and sample
+    rows_keep = intersect(rows_g, rows_s)
+    d_resample = data[rows_keep, , drop = FALSE]
+    if (nrow(d_resample) < 2) {
+      next  # skip iteration if not enough data
+    }
+    #build pairs and fit glm based on resampled data
+    pairs = d_resample %>%
+      rename_with(~ paste0(.x, "_i")) %>%
+      tidyr::crossing(
+        d_resample %>% rename_with(~ paste0(.x, "_j"))
+      ) %>%
+      dplyr::filter(.data[[paste0(sample_col, "_i")]] != .data[[paste0(sample_col, "_j")]]) %>%
+      dplyr::mutate(
+        delta_pmax = .data[[paste0(damage_col, "_j")]] -.data[[paste0(damage_col, "_i")]],
+        y_ij = as.integer(.data[[paste0(time_col, "_j")]] >.data[[paste0(time_col, "_i")]]))
+    if (nrow(pairs) == 0) {
+      next}
+    mod = glm(y_ij ~ delta_pmax, family = binomial(), data = pairs)
+    pred_matrix[r, ] = predict(mod,newdata = data.frame(delta_pmax = delta_seq),type = "response") }
+# Compute 95% CI from pred_matrix
+ci = apply(pred_matrix, 2, function(x) quantile(x, c(0.025, 0.975), na.rm = TRUE))
+ci_df = data.frame(
+  delta_pmax = delta_seq,
+  lwr = ci[1, ],
+  upr = ci[2, ],
+  fit = apply(pred_matrix, 2, mean, na.rm = TRUE))
+# Return complete results
+list(bootstrap_predictions = pred_matrix,ci_df = ci_df)}
+```
+```{r}
+result_two_way = bootstrap_pairwise_by_genus_sample(data = data_w[data_w$median_age_yrs_bf_1950<32000,] ,R = 500)
+```
+
+### 4.2.2 Plot
+```{r}
+plottable_logit=result_two_way$ci_df %>% mutate(orig_pred = predict(pmax_logit, 
+                    newdata = data.frame(delta_pmax = .$delta_pmax), 
+                    type = "response"))
+```
+```{r}
+find_cutoff_crossing <- function(df, p) {
+  df %>%
+    filter(orig_pred >= p | lwr >= p | upr >= p) %>%
+    summarise(
+      prob = p,
+      delta_pmax_fit = min(delta_pmax[orig_pred >= p], na.rm = TRUE),
+      delta_pmax_lwr = min(delta_pmax[lwr >= p], na.rm = TRUE),
+      delta_pmax_upr = min(delta_pmax[upr >= p], na.rm = TRUE)
+    )
+}
+
+cut_095 <- find_cutoff_crossing(plottable_logit, 0.95)
+cut_075 <- find_cutoff_crossing(plottable_logit, 0.75)
+
+bind_rows(cut_095, cut_075)
+```
+
+```{r}
+Scurve=ggplot(plottable_logit, aes(x = delta_pmax)) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr), fill = "lightblue3", alpha = 0.5) +
+  geom_line(aes(x = delta_pmax, y = orig_pred), linewidth=0.5)+
+  labs(x = expression(p[max*','*j]*' - '*p[max*','*i] ), y = expression('P('*Age[j]*'>'*Age[i]*')')) +
+  scale_x_continuous(expand=c(0,0))+
+  theme_bw(base_size = 9)
+Scurve
+```
+
+## 4.3 Application of logit-model
+```{r}
+pairs_test$pred_prob <- predict(
+  pmax_logit ,
+  newdata = pairs_test,
+  type = "response"
+)
+```
+
+### 4.3.1 ROC
+```{r}
+roc_obj <- roc(
+  response = pairs_test$y_ij,
+  predictor = pairs_test$pred_prob
+)
+```
+```{r}
+auc_value <- auc(roc_obj)
+auc_value
+```
+```{r}
+roc_df <- data.frame(
+  specificity = roc_obj$specificities,
+  sensitivity = roc_obj$sensitivities
+) %>%
+  mutate(
+    fpr = 1 - specificity
+  )
+
+roc=
+  ggplot(roc_df, aes(x = fpr, y = sensitivity)) +
+  geom_line(color = "black", size = 1) +
+  geom_abline(slope = 1, intercept = 0,
+              linetype = "dashed", color = "grey50") +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  labs(
+    x = "False Positive Rate",
+    y = "True Positive Rate") +
+  theme_bw(base_size = 9)+
+  annotate( "text",x = 0.6, y = 0.2,label = paste0("AUC = ", round(auc_value, 3)),size = 3)+
+  coord_fixed()
+roc
+```
+
+### 4.3.2 Classification threshold
+```{r}
+coords(roc_obj, "best", ret = c("threshold","sensitivity", "specificity"), best.method="youden")
+```
+
+```{r}
+qlogis(c(0.5)) / coef(pmax_logit)['delta_pmax']
+```
+0.5 is the most suited threshold for class separation, this corresponds to a delta_pmax of 0 (as expected for logit model)
+
+```{r}
+pairs_test$pred_class <- pairs_test$pred_prob > 0.5
+```
+
+```{r}
+table(
+  truth = pairs_test$y_ij,
+  pred  = pairs_test$pred_class
+)
+
+mean(pairs_test$y_ij == pairs_test$pred_class)
+```
+
+```{r}
+mean((pairs_test$delta_pmax > 0) == pairs_test$y_ij)
+```
+
+### 4.3.3 Binned data approach
+```{r}
+pairs_test_plot <- pairs_test %>%
+  mutate( correct = as.integer((delta_pmax > 0) == (median_age_yrs_bf_1950_j>median_age_yrs_bf_1950_i)), abs_dp = abs(delta_pmax),
+      dp_bin = cut_width(abs_dp, width = 0.025, boundary = 0),include.lowest = TRUE)%>% 
+ mutate(correct = factor(correct, levels = c(0, 1),
+                     labels = c("Incorrect", "Correct"))) %>% 
+  group_by(dp_bin, correct) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(dp_bin) %>%
+  mutate(prop = n / sum(n))
+```
+```{r}
+bars=ggplot(pairs_test_plot, aes(x = dp_bin, y = prop, fill = correct)) +
+  geom_col(width = 0.9, alpha=0.5) +
+  labs(
+    x = expression("|"*Delta*"("*p[max]*")|"),
+    y = "Probability of correct ranking",
+    fill = NULL
+  ) +
+  scale_fill_manual(
+    values = c("Incorrect" = "darkred", "Correct" = "grey40")
+  ) +
+  theme_bw(base_size = 9) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),legend.position='none'
+  )
+bars
+```
+
+
+# 5. combined plots
+### 5.1 Figure S8
+
+```{r, fig.height=8, fig.width=7}
+wrap_plots(p_deltas+ylab(expression(delta[s])), p_pmax+ylab(expression(p[max])), p_mode+ylab('Mode Fragment Length (bp)'), p_pgeom+ylab(expression(p[geom])), p_lambda+ ylab(expression('Mean Overhang Lenght '* 1/lambda *' (bp)')), ncol = 2)+  plot_annotation(tag_levels = "A")
+```
+
+## 5.2 Figure S9
+```{r, fig.width= 5, fig.height= 8}
+(delta_s_res+
+  theme(axis.title.x = element_blank())+
+  labs(title= "Residuals", subtitle = expression(delta[s]*' vs. Age Model')))/ 
+(pmax_res+
+   theme(axis.title.x = element_blank())+
+  labs(subtitle = expression(p[max]*' vs. Age Model')))/
+(mode_res+
+   theme(axis.title.x = element_blank())+
+  labs(subtitle = 'Mode Read Length vs. Age Model'))/ 
+(p_geom_res+
+   theme(axis.title.x = element_blank())+
+  labs(subtitle = expression(p[geom]*' vs. Age Model')))/ 
+(lambda_res+
+  labs(subtitle = expression(1/lambda*' vs. Age Model')) )+ 
+  plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect")&theme(legend.position = "bottom",  plot.margin = margin(0, 0, 0,0)) 
+
+
+ 
+```
+
+
+
+
+
+
+
+
+
+
+

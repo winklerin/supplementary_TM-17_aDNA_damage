@@ -239,12 +239,105 @@ t
 # 5. Taxonomic overview table for Supplementary
 
 ```{r}
-S1= data %>% group_by(taxID,taxon, rank,kingdom,phylum,class,order,family,genus,species,sample) %>% summarize(summed_TPM=sum(tpm))%>% mutate(across(where(is.character), ~ifelse(. == "", "unclassified", .)))%>% pivot_wider(names_from = sample, values_from = summed_TPM, values_fill = 0,values_fn = sum) %>% mutate(across(where(is.numeric), ~replace_na(., 0))) %>% ungroup() %>% as.data.frame()
+S2= data %>% group_by(taxID,taxon, rank,kingdom,phylum,class,order,family,genus,species,sample) %>% summarize(summed_TPM=sum(tpm))%>% mutate(across(where(is.character), ~ifelse(. == "", "unclassified", .)))%>% pivot_wider(names_from = sample, values_from = summed_TPM, values_fill = 0,values_fn = sum) %>% mutate(across(where(is.numeric), ~replace_na(., 0))) %>% ungroup() %>% as.data.frame()
 
-S1
+S2
 ```
 ```{r}
-write.csv(S1, file = "S1_tax_overview.csv", row.names = FALSE)
+write.csv(S2, file = "S2_tax_overview.csv", row.names = FALSE)
 ```
 
-
+```{r, fig.height=8, fig.width=6}
+S2 %>% cbind(TDM009=rep(0, times=nrow(S2))) %>% pivot_longer(names_to = 'sample', cols=starts_with(c("TDM", "EXB")), values_to = 'abund') %>% group_by(sample, phylum) %>%
+  summarise(abund = sum(abund),.groups = "drop") %>% 
+  mutate(phylum = if_else(abund < 15000, "rare (<15000 TPM)", phylum),
+         phylum = if_else(phylum=='', "unclassified", phylum)) %>%
+  group_by(sample,phylum) %>%
+  summarise(abund = sum(abund), .groups = "drop") %>% 
+  filter(startsWith(sample,"TDM")) %>% 
+  mutate(dft=as.integer(str_extract(sample, "(?<=TDM)\\d+")))%>% 
+  ggplot(aes(x=abund, y=sample, fill=phylum))+
+  geom_col(stat='identity')+
+  scale_y_discrete(limits=rev)+
+  scale_fill_manual('Phylum',
+                    values=c("Acidobacteriota" ="#1f78b4" ,
+    "Actinomycetota" = "lightblue3",
+    "Bacillota" = "#7570b3",
+    "Candidatus Methylomirabilota" = "#b2df8a",
+    "Candidatus Rokuibacteriota" = "#66a61e",
+    "Chloroflexota" = 'forestgreen',
+    "Ignavibacteriota" = "#a6761d",
+    "Elusimicrobiota" = "khaki",
+    "Myxococcota" = "#fb9a99",
+    "Nitrosospaerota" = "#e7298a",
+    "Nitrospirota" = "darkred",
+    "Nitrososphaerota" = 'tomato',
+    "Planctomycetota" = "peachpuff",
+    "Pseudomonadota"="orange2",
+    'rare (<15000 TPM)'='gray40',
+    "unclassified"="lightgray"),na.value='white')+
+  theme_bw(base_size = 9)+
+  ylab('Sample')+
+  xlab('Relative Abundance (TPM)')
+```
+```{r, fig.height=8, fig.width=6}
+S2 %>% cbind(TDM009=rep(0, times=nrow(S2))) %>% pivot_longer(names_to = 'sample', cols=starts_with(c("TDM", "EXB")), values_to = 'abund') %>% group_by(sample, phylum) %>%
+  summarise(abund = sum(abund),.groups = "drop") %>% 
+  mutate(phylum = if_else(abund < 15000, "rare (<15000 TPM)", phylum),
+         phylum = if_else(phylum=='', "unclassified", phylum)) %>%
+  group_by(sample,phylum) %>%
+  mutate(
+  phylum = factor(
+    phylum,
+    levels = rev(c(
+      "unclassified",
+      "rare (<15000 TPM)",
+      "Acidobacteriota",
+      "Actinomycetota",
+      "Bacillota",
+      "Bacteroidota",
+      "Candidatus Methylomirabilota",
+      "Candidatus Rokuibacteriota",
+      "Chloroflexota",
+      "Ignavibacteriota",
+      "Elusimicrobiota",
+      "Myxococcota",
+      "Nematoda",
+      "Nitrosospaerota",
+      "Nitrospirota",
+      "Nitrososphaerota",
+      "Planctomycetota",
+      "Pseudomonadota",
+      "Uroviricota"
+    )))
+) %>% 
+  summarise(abund = sum(abund), .groups = "drop") %>% 
+  #filter(startsWith(sample,"EXB")) %>% 
+ # mutate(dft=as.integer(str_extract(sample, "(?<=TDM)\\d+")))%>% 
+  ggplot(aes(x=abund, y=sample, fill=phylum))+
+  geom_col(stat='identity')+
+  scale_y_discrete(limits=rev)+
+  scale_fill_manual('Phylum',
+                    values=c("Acidobacteriota" ="#1f78b4" ,
+    "Actinomycetota" = "lightblue3",
+    "Bacillota" = "#7570b3",
+    "Bacteroidota" = 'plum3',
+    "Candidatus Methylomirabilota" = "#b2df8a",
+    "Candidatus Rokuibacteriota" = "#66a61e",
+    "Chloroflexota" = 'forestgreen',
+    "Ignavibacteriota" = "#a6761d",
+    "Elusimicrobiota" = "khaki",
+    "Myxococcota" = "#fb9a99",
+    "Nematoda" ='#FFCCCC',
+    "Nitrosospaerota" = "#e7298a",
+    "Nitrospirota" = "darkred",
+    "Nitrososphaerota" = 'tomato',
+    "Planctomycetota" = "peachpuff",
+    "Pseudomonadota"="orange2",
+    "Uroviricota"='darkorange4',
+    'rare (<15000 TPM)'='gray40',
+    "unclassified"="lightgray"),na.value='white')+
+  theme_bw(base_size = 9)+
+  ylab('Sample')+
+  xlab('Relative Abundance (TPM)')
+```

@@ -1,0 +1,65 @@
+---
+title: "Stalagmite Petrology"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(tidyverse)
+packageVersion('tidyverse')
+library(RColorBrewer)
+packageVersion('RColorBrewer')
+
+```
+
+#Petrology
+```{r}
+petrology=read.csv('Microstratigraphy.csv')
+```
+
+
+```{r,fig.height=5, fig.width=4}
+# Plot as colored stripes
+petrology %>% mutate(From_mm=From_mm/10, To_mm=To_mm/10) %>% ggplot(aes(ymin = From_mm, ymax = To_mm, fill = as.factor(Code))) +
+  geom_rect(aes(xmin = 0.5, xmax = 1.5)) +
+  scale_y_reverse(breaks = seq(0, 60, by = 1),              
+  labels = function(x) ifelse(x %% 5 == 0, x, ""),
+  expand=c(0,0))  +
+  #scale_fill_manual(values = code_colors, na.value = "grey80") +
+  theme_minimal(base_size=9) +
+  theme(
+    axis.title.y = element_text(color='black'),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid = element_blank(),
+    axis.line.y = element_line(color = "black", linewidth = 0.5),
+    axis.ticks.y = element_line(color = "black"),
+    legend.spacing.y = unit(0.4, "cm"),
+    legend.key.height = unit(1, "cm"),
+  ) +
+  labs(y='Depth from Top (cm)')+
+  scale_fill_manual(name = "Microfabric",values=rev(c("M; M"='yellow2',"Cpst; Cpst"="#B2182B", "Cm; Cm"="#D6604D", "Co; Co" ="#F4A582", "Cp; Cp" ="#FDDBC7", "C/Co; C/Co"="#D1E5F0", "C/Cp; C/Cp" ="#92C5DE", "Ce/Cd; Ce/Cd"="#2166AC","C; C"='darkblue')), 
+                    labels = c("C; C"= "Columnar",
+                               "Ce/Cd; Ce/Cd"="Columnar elongated/distorted",
+                              "C/Cp; C/Cp" ="Columnar/columnar porous", 
+                              "C/Co; C/Co"="Columnar/Columnar open", 
+                              "Cp; Cp" ="Columnar porous", 
+                              "Co; Co" = "Columnar open", 
+                              "Cm; Cm"="Columnar microcrystalline",
+                              "Cpst; Cpst"= "Columnar porous with tufa-like layers", 
+                              "M; M"="Micrite"),
+                    guide = guide_legend(ncol = 1),
+                    breaks = rev(c("M; M",
+             "Cpst; Cpst",
+             "Cm; Cm",
+             "Co; Co",
+             "Cp; Cp",
+             "C/Co; C/Co",
+             "C/Cp; C/Cp",
+             "Ce/Cd; Ce/Cd",
+             "C; C")))
+```
+
+
+

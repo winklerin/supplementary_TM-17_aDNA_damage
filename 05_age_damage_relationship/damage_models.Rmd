@@ -20,6 +20,8 @@ library(pROC)
 packageVersion('pROC')
 library(scales)
 packageVersion('scales')
+library(ppcor)
+packageVersion('ppcor')
 ```
 # 1.2 Read the data
 
@@ -181,6 +183,7 @@ cor_data = data[data$tool_param %in% c("pydamage_pmin","pydamage_pmax","pydamage
     p_value = map_dbl(cor_test, ~ .x$p.value)
   )
 ```
+
 I'm adjusting p-values for multiple testing with the Banjamini-Hochberg method and create labels for plotting
 ```{r}
 cor_data = cor_data %>%
@@ -214,7 +217,7 @@ cor= cor_data %>% mutate(class=sub("_.*", "", tool_param)) %>%  ggplot(aes(y=fac
                                "nitrosotalea"  ="Nitrosotalea",
                                "nitrospira"="Nitrospira",
                                "piscinibacter" = "Piscinibacter"))+
-   facet_grid(. ~ class, scales="free_x", space="free")+
+   facet_grid(. ~ class, scales="free_x", space="free", labeller=labeller(class=c('compute'='Fragmentation', 'mapdamage'='mapDamage', 'pydamage'='PyDamage')))+
   theme_minimal(base_size = 9)+
   theme( legend.position = 'bottom', axis.text.y=element_text(face = "italic"),  legend.key.width = unit(1, "cm"))+
    labs(
@@ -281,6 +284,93 @@ ggplot(aes(x = median_age_yrs_bf_1950, y = value_plot, color = genus)) +
 ```
 
 Beyond 32000 years temporal trends reversed or became unstable in multiple parameters and genera. This conincides with a change in the microfabric of TM-17. Therefore we restrict the damage modelling to samples younger than 32000y.
+### Influence of Reference length
+```{r}
+damage_params <- c(
+  "pydamage_pmin",
+  "pydamage_pmax",
+  "pydamage_p",
+  "mapdamage_delta_d",
+  "mapdamage_delta_s",
+  "mapdamage_lambda",
+  "compute_length_mode",
+  "compute_length_geom_p"
+)
+
+wide_data <- data %>%
+  filter(tool_param %in% c(damage_params, "pydamage_len")) %>%
+  dplyr::select(
+    sample_name,
+    median_age_yrs_bf_1950,
+    tool_param,
+    value,
+    genus
+  ) %>%
+  pivot_wider(
+    names_from = tool_param,
+    values_from = value
+  ) %>%
+  mutate(
+    across(
+      all_of(c(damage_params, "pydamage_len")),
+      as.numeric
+    )
+  )
+
+global_cor_data <- map_dfr(
+  damage_params,
+  function(param) {
+
+    spearman_test <- cor.test(
+      x = wide_data$median_age_yrs_bf_1950,
+      y = wide_data[[param]],
+      method = "spearman"
+    )
+
+    partial_test <- pcor.test(
+      x = wide_data$median_age_yrs_bf_1950,
+      y = wide_data[[param]],
+      z = wide_data$pydamage_len,
+      method = "spearman"
+    )
+
+    tibble(
+      tool_param = param,
+
+      spearman_rho = unname(spearman_test$estimate),
+      spearman_p = spearman_test$p.value,
+
+      partial_rho = partial_test$estimate,
+      partial_p = partial_test$p.value,
+
+      delta_rho = partial_test$estimate - spearman_test$estimate
+    )
+
+  }
+)
+```
+
+```{r, fig.width=7, fig.height=3}
+plot_data <- global_cor_data %>%
+  tidyr::pivot_longer(cols = c(spearman_rho, partial_rho),  names_to = "correlation_type",values_to = "rho") %>%
+  mutate(correlation_type = recode(correlation_type,spearman_rho = "Spearman",partial_rho = "Partial Spearman"))
+
+ggplot(global_cor_data, aes(y = reorder(tool_param, spearman_rho))) +
+ # connecting lines
+  geom_segment(aes(x = spearman_rho,xend = partial_rho,yend = reorder(tool_param, spearman_rho)),linewidth = 0.7,color = "grey60") +
+# standard Spearman: filled black points
+  geom_point( aes(x = spearman_rho, shape = "Spearman"),size = 3,color = "black",fill = "black") +
+# partial Spearman: open red circles
+  geom_point(aes(x = partial_rho, shape = "Partial Spearman"),size = 3, color = "darkred", stroke = 1.2 ) +
+geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+scale_shape_manual(name = NULL,values = c("Spearman" = 16,"Partial Spearman" = 21),
+  labels = c("Spearman"=expression("Spearman's "~rho[age*","*damage]),
+  "Partial Spearman"= expression("Spearman's "~rho[age*","*damage*"|"*reference~length]))) +
+labs( x = expression(rho),y = NULL) +
+theme_bw(base_size = 9) +
+theme(legend.position = "bottom")+
+scale_y_discrete(labels = function(x) parse(text = tool_param_labels[x]))
+```
 
 ## 3.2 correlation of parameters with each other
 ### 3.2.1 Fragment length and 1/lambda
@@ -315,7 +405,7 @@ ggplot(data_w, aes(y=mapdamage_lambda, x=pydamage_p))+
 ## 4.1 delta_s over time
 ### 4.1.1 Fit
 ```{r}
-plottable_delta_s=data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'mapdamage_delta_s', 'genus','sample','gc_gc')]
+plottable_delta_s=data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'mapdamage_delta_s', 'genus','sample','gc_gc','pydamage_len','pydamage_nb_contigs', 'pydamage_nb_reads')]
 fit_delta_s <- nls(mapdamage_delta_s  ~ 1 - exp(-r * median_age_yrs_bf_1950),data = plottable_delta_s,start = list(r = 1e-3))
 summary(fit_delta_s)
 ```
@@ -376,7 +466,7 @@ delta_s_res
 ## 4.2 pmax over time
 ### 4.2.1 Fit
 ```{r}
-plottable_pmax=data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'pydamage_pmax','genus', 'sample', 'gc_gc')]
+plottable_pmax=data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'pydamage_pmax','genus', 'sample', 'gc_gc','pydamage_len','pydamage_nb_contigs', 'pydamage_nb_reads')]
 # Fit the model using nls
 fit_pmax <- nls(pydamage_pmax  ~ a+b * (1 - exp(-r * median_age_yrs_bf_1950)),
 data = plottable_pmax,
@@ -447,7 +537,7 @@ pmax_res
 ## 4.3 p_geom over time
 ### 4.3.1 Fit
 ```{r}
-plottable_pgeom <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'compute_length_geom_p', 'genus', 'sample','gc_gc')]
+plottable_pgeom <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'compute_length_geom_p', 'genus', 'sample','gc_gc','pydamage_len','pydamage_nb_contigs', 'pydamage_nb_reads')]
 
 fit_pgeom<- nls(compute_length_geom_p ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
 data = plottable_pgeom,
@@ -521,7 +611,7 @@ p_geom_res
 ## 4.4 length mode over time
 ### 4.4.1 Fit
 ```{r}
-plottable_mode <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'compute_length_mode', 'genus', 'sample', 'gc_gc')]
+plottable_mode <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'compute_length_mode', 'genus', 'sample', 'gc_gc','pydamage_len','pydamage_nb_contigs', 'pydamage_nb_reads')]
 
 fit_mode <- nls(
 compute_length_mode ~ Lmin + (L0 - Lmin) * exp(-lambda * median_age_yrs_bf_1950),
@@ -586,7 +676,7 @@ mode_res
 ## 4.5 1/lambda over age - mean overhang length
 ### 4.5.1 Fit
 ```{r}
-plottable_overhangs <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'mapdamage_lambda', 'genus', 'sample', 'gc_gc')]
+plottable_overhangs <- data_w[data_w$median_age_yrs_bf_1950<32000,c('median_age_yrs_bf_1950', 'mapdamage_lambda', 'genus', 'sample', 'gc_gc','pydamage_len','pydamage_nb_contigs', 'pydamage_nb_reads')]
 
 fit_overhangs <- nls(1/mapdamage_lambda ~ a+ b * (1 - exp(-r * median_age_yrs_bf_1950)),
 data = plottable_overhangs,
@@ -664,10 +754,12 @@ summarize_by_genus <- function(df) {
   df %>%
     group_by(genus) %>%
     summarise(
-      mean_gc = median(gc_gc, na.rm = TRUE),
+      median_gc = median(gc_gc, na.rm = TRUE),
       sd_gc=sd(gc_gc, na.rm=TRUE),
-      mean_resid = median(residual, na.rm = TRUE),
+      median_resid = median(residual, na.rm = TRUE),
       sd_resid=sd(residual, na.rm=TRUE),
+      median_len=median(pydamage_len, na.rm =TRUE),
+      sd_len=sd(pydamage_len, na.rm=TRUE),
       .groups = 'drop'
     ) %>% 
     mutate(
@@ -688,12 +780,12 @@ plot_genus_model = function(genus_summary_list) {
   for (i in seq_along(genus_summary_list)) {
     df = genus_summary_list[[i]]
     results[[i]] = ggplot(
-      df,aes(x = mean_gc, y = mean_resid, color = cell_wall, group=1)) +
+      df,aes(x = median_gc, y = median_resid, color = cell_wall, group=1)) +
        geom_smooth( method = "lm",formula = y ~ x,se = FALSE, aes(group = 1), color = "black", linewidth = 0.4)+
       geom_point(size = 2) +
-      geom_errorbar(aes(ymin = mean_resid - sd_resid,  ymax = mean_resid + sd_resid),width = 0) +
-      geom_errorbarh(aes(xmin = mean_gc - sd_gc,xmax = mean_gc + sd_gc),height = 0) +
-      labs(x = "Mean GC content",y = "Mean residual", title = labels[i]
+      geom_errorbar(aes(ymin = median_resid - sd_resid,  ymax = median_resid + sd_resid),width = 0) +
+      geom_errorbarh(aes(xmin = median_gc - sd_gc,xmax = median_gc + sd_gc),height = 0) +
+      labs(x = "Median GC content",y = "Median residual", title = labels[i]
       ) +
       theme_bw(base_size = 9)+
       scale_color_manual('Cell Wall Morphology', values = c('gram_pos'='lightblue3','archaeon'='darkred','gram_neg'='gray40' ),labels=c('gram_pos'='gram+','gram_neg'= 'gram-', 'archaeon'='archaeal'))
@@ -701,10 +793,55 @@ plot_genus_model = function(genus_summary_list) {
   return(results)
 }
 # Apply to all models in your list
-results_list = plot_genus_model(genus_summary_list)
-results_list[[1]]
-
+results_list_gc = plot_genus_model(genus_summary_list)
+results_list_gc[[1]]
 ```
+
+## 4.7 Screening for influence of reference length
+```{r}
+plot_res_vs_len = function(list) {
+  labels = c(expression(delta[s]), "Mode Fragment Length",expression(1 / lambda),expression(p[geom]), expression(p[max]))
+  
+  results = vector("list", length(list))
+  for (i in seq_along(list)) {
+    df = list[[i]]
+    results[[i]] = ggplot(
+      df,aes(y = residual, x = pydamage_len, color = genus, group=1)) +
+      geom_point(size = 2, shape=4) +
+      geom_smooth( method = "lm",formula = y ~ x,se = FALSE, aes(group = 1), color='black', linewidth = 0.4)+
+      labs(x = "Pseudobin lenght (bp)",y = "Residual", title = labels[i]) +
+      theme_bw(base_size = 9)+
+     # facet_wrap(~genus)+
+      scale_x_log10()+
+      scale_color_manual("Genus", values =c( "darkred",   "lightblue3",    '#009E73',    "darkorchid",   "blue4",'#E66101'), labels=genus_labels)
+  }
+  return(results)
+}
+# Apply to all models in your list
+results_list_len = plot_res_vs_len(residuals_overview)
+results_list_len[[1]]
+results_list_len[[2]]
+results_list_len[[3]]
+results_list_len[[4]]
+results_list_len[[5]]
+```
+```{r}
+lm(residual ~ log(pydamage_len), data = plottable_pmax) %>% summary()
+```
+```{r}
+lm(residual ~ log(pydamage_len), data = plottable_delta_s) %>% summary()
+```
+```{r}
+lm(residual ~ log(pydamage_len), data = plottable_mode) %>% summary()
+```
+```{r}
+lm(residual ~ log(pydamage_len), data = plottable_pgeom) %>% summary()
+```
+```{r}
+lm(residual ~ log(pydamage_len), data = plottable_overhangs) %>% summary()
+```
+
+
 
 
 # 5. Application of p_max-age-model for absolute age prediction
@@ -1133,37 +1270,37 @@ cor + assembly+ theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
         axis.title.y = element_blank()) +
   plot_layout(widths = c(3.5, 1))&
-   theme(plot.margin = margin(0,0,0,0))
+   theme(plot.margin = margin(0,0,0,0))& plot_annotation(tag_levels = "A")
 ```
 
-## 7.2 Figure 4
+## 7.2 Figure 5
 ```{r, fig.width=7, fig.height=5.5}
 (p_mode | p_pgeom) / (p_lambda | p_cor)+ plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect") &  theme(legend.position = "none")
 ```
 
 ```{r}
-#ggsave('./figures/fig4/fig4.pdf', width=7, height=5.5, units='in')
+#ggsave('./figures/fig5/fig5.pdf', width=7, height=5.5, units='in')
 ```
 
-## 7.3 Figure 5
+## 7.3 Figure 6
 ```{r, fig.width=7, fig.height=3}
 (p_deltas | p_pmax) + plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect") &  theme(legend.position = "none")
 ```
 
 ```{r}
-#ggsave('./figures/fig5/fig5.pdf', width=7, height=3, units='in')
+#ggsave('./figures/fig6/fig6.pdf', width=7, height=3, units='in')
 ```
 
-## 7.4 Figure 6
+## 7.4 Figure 7
 ```{r,fig.width=7, fig.height=4}
 ((overview/modelled)|scatter)+plot_annotation(tag_levels = "A")
 ```
 
-## 7.5 Figure 7
+## 7.5 Figure 8
 ```{r, fig.width=7, fig.height=5}
 (hist | Scurve) / (roc | bars) + plot_annotation(tag_levels = "A")
 ```
-## 7.6 Figure S4
+## 7.6 Supplementary Figure 8 
 ```{r, fig.width= 5, fig.height= 9}
 (delta_s_res+
   theme(axis.title.x = element_blank()))/ 
@@ -1179,9 +1316,9 @@ lambda_res + plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect")&
  
 ```
 
-## 7.7 Figure S6 
+## 7.7 Supplementary Figure 10
 ```{r, fig.width=7, fig.height=8}
-(results_list[[2]] | results_list[[4]])/(results_list[[3]] | results_list[[5]])/(results_list[[1]] | guide_area() )+plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect")&theme(legend.position = 'bottom')
+wrap_plots(results_list_gc[[2]] , results_list_gc[[4]],results_list_gc[[3]], results_list_gc[[5]],results_list_gc[[1]],patchwork::guide_area(),ncol=2 )+plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect")&theme(legend.position = 'bottom')&guides(color = guide_legend(ncol = 1))
 ```
 
 
