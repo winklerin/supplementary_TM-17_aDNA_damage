@@ -54,7 +54,7 @@ read_fastp_insert_sizes <- function(base_dir) {
 ```
 # Extract Insert Size Histogram values from fastp output
 ```{r}
-basedir="./fastp"
+basedir="../../00_input/fastp/"
 ```
 
 ```{r}
@@ -92,5 +92,8 @@ p5
 saveRDS(p5, '../../06_figures/Fig1/E.rds')
 ```
 
+```{r}
+write.table(insert_df_norm, '../../07_output_tables/Fig1E_source.txt', quote = F, row.names = F)
+```
 
 

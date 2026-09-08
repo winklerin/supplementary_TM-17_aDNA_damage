@@ -1,18 +1,27 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Combine_Figs"
+output:
+  html_document:
+    df_print: paged
 ---
 ```{r}
-readRDS()
+FigD=readRDS('D.rds')
+FigE=readRDS('E.rds')
+FigF=readRDS('F.rds')
+FigG=readRDS('G.rds')
+FigH=readRDS('H.rds')
 ```
 
 ```{r}
+library(patchwork)
+library(tidyverse)
+```
+
 ```{r, fig.width=5.2, fig.height=5}
-(p4|p5|p1|(p2/p3))+plot_layout(widths = c(2.3,1.55,2.2, 0.7))
+(FigD|FigE|FigF|(FigG/FigH))+plot_layout(widths = c(2.3,1.55,2.2, 0.7))
 ```
 ```{r}
-ggsave('./figures/proposal/fig1.pdf', width=5.2, height=5, units = 'in')
+ggsave('fig1.pdf', width=5.2, height=5, units = 'in')
 ```
 
-```
 

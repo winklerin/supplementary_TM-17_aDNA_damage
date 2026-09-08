@@ -8,7 +8,6 @@ output:
 ---
 The stalagmite was dated every 0.25 mm. As our subsamples were collected at ~1cm intervals, I need to summarize the age data
 
-
 # packages
 ```{r}
 library(tidyverse)
@@ -19,12 +18,13 @@ packageVersion('tidyverse')
 
 # load age model
 ```{r}
-age_model_RAW=read.csv('TM17_Stalagmite_Age_Model.csv', skip=1, col.names = c( 'cm_from_top', 'age_yrs_bf_1950', 'age_yrs_bf_1950_upper_CI', 'age_yrs_bf_1950_lower_CI')) %>% filter(if_any(everything(), ~ !is.na(.x)))
+age_model_RAW=read.csv('../00_input/TM17_Stalagmite_Age_Model.csv', skip=1, col.names = c( 'cm_from_top', 'age_yrs_bf_1950', 'age_yrs_bf_1950_upper_CI', 'age_yrs_bf_1950_lower_CI')) %>% filter(if_any(everything(), ~ !is.na(.x)))
 ```
 # load rock cube intervals
 The length of the rock cubes was measured from calibrated images in imageJ and rounded to multiples of 0.25cm. We have mostly 1cm intervals with a few exceptions.
 ```{r}
-intervals=read.csv('Rock_Cube_Sizes_from_imageJ.csv', sep=';')
+intervals=read.csv('../00_input/Rock_Cube_Sizes_from_imageJ.csv', sep=';')
+
 ```
 Because of the rounding the intervals reach just to 60.5 cm. I'm setting the lower boundary of the bottom subsample to the oldest layer of the age model to cover the whole age model.
 ```{r}
@@ -76,7 +76,7 @@ age_model_summarized=age_model_RAW %>%
 
 # save summarized age model
 ```{r}
-write.table(age_model_summarized, 'summarized_age_model.csv', quote = F, row.names = F)
+write.table(age_model_summarized, '../07_output_tables/summarized_age_model.csv', quote = F, row.names = F)
 ```
 
 # Some statistics on the age intervals

@@ -28,7 +28,7 @@ I worked with a training data set (data) to explore trends and fit models and a 
 
 #### Training data
 ```{r}
-data=read.csv('damage_data_core_genera.csv')
+data=read.csv('../00_input/damage_data_core_genera.csv')
 ```
 ```{r}
 data_w = pivot_wider(data[,-c(3:4)],
@@ -40,7 +40,7 @@ data_w$qPCRcopies_per_uL_and_mg_rock=data_w$qPCRcopies_per_uL/data_w$mass_mg
 ```
 #### Test data
 ```{r}
-test_genera = read_csv("damage_data_test_genera.csv")
+test_genera = read_csv("../00_input/damage_data_test_genera.csv" )
 ```
 ```{r}
 test_genera_w = pivot_wider(test_genera[,-c(3:4)],
@@ -647,32 +647,38 @@ bars
 
 
 # 5. combined plots
-### 5.1 Figure S8
+### 5.1 Supplementary Figure 8
 
 ```{r, fig.height=8, fig.width=7}
-wrap_plots(p_deltas+ylab(expression(delta[s])), p_pmax+ylab(expression(p[max])), p_mode+ylab('Mode Fragment Length (bp)'), p_pgeom+ylab(expression(p[geom])), p_lambda+ ylab(expression('Mean Overhang Lenght '* 1/lambda *' (bp)')), ncol = 2)+  plot_annotation(tag_levels = "A")
+wrap_plots(p_deltas+ylab(expression(italic(delta)[s])), p_pmax+ylab(expression(italic(p)[max])), p_mode+ylab('Mode Fragment Length (bp)'), p_pgeom+ylab(expression(italic(p)[geom])), p_lambda+ ylab(expression('Mean Overhang Lenght '* 1/italic(lambda) *' (bp)')), ncol = 2)+  plot_annotation(tag_levels = "A")
+```
+```{r}
+ggsave('../06_figures/Supplementary_Fig5.png', width=18, height=20, unit='cm', dpi='print',create.dir = TRUE)
 ```
 
-## 5.2 Figure S9
+## 5.2 Supplementary Figure 9
 ```{r, fig.width= 5, fig.height= 8}
 (delta_s_res+
   theme(axis.title.x = element_blank())+
-  labs(title= "Residuals", subtitle = expression(delta[s]*' vs. Age Model')))/ 
+  labs(title= "Residuals", subtitle = expression(italic(delta)[s]*' vs. Age Model')))/ 
 (pmax_res+
    theme(axis.title.x = element_blank())+
-  labs(subtitle = expression(p[max]*' vs. Age Model')))/
+  labs(subtitle = expression(italic(p)[max]*' vs. Age Model')))/
 (mode_res+
    theme(axis.title.x = element_blank())+
   labs(subtitle = 'Mode Read Length vs. Age Model'))/ 
 (p_geom_res+
    theme(axis.title.x = element_blank())+
-  labs(subtitle = expression(p[geom]*' vs. Age Model')))/ 
+  labs(subtitle = expression(italic(p)[geom]*' vs. Age Model')))/ 
 (lambda_res+
-  labs(subtitle = expression(1/lambda*' vs. Age Model')) )+ 
+  labs(subtitle = expression(1/italic(lambda)*' vs. Age Model')) )+ 
   plot_annotation(tag_levels = "A")+ plot_layout(guides = "collect")&theme(legend.position = "bottom",  plot.margin = margin(0, 0, 0,0)) 
 
 
  
+```
+```{r}
+ggsave('../06_figures/Supplementary_Fig6.png', width=18, height=20, unit='cm', dpi='print',create.dir = TRUE)
 ```
 
 

@@ -15,11 +15,11 @@ I'm aggregating the QUAST output of the assemblies of the different layers
 
 # 1. Loading data
 ```{r}
-names=sort(list.files('./assembly_stats/'))
+names=sort(list.files('../../00_input/assembly_stats/'))
 ```
 ```{r}
 data_list <- lapply(names, function(file) {
-  read.csv(paste0('./assembly_stats/',file,'/QUAST/report.tsv'), sep = "\t", header = TRUE, row.names = 1, check.names = FALSE)
+  read.csv(paste0('../../00_input/assembly_stats/',file,'/QUAST/report.tsv'), sep = "\t", header = TRUE, row.names = 1, check.names = FALSE)
 })
 ```
 ```{r}
@@ -75,13 +75,20 @@ data_long <- data %>%
 ```{r}
 desired_order=paste0(rep('TDM0', times=61), c('01','02','03','04','05','06', '07', '08', '09', as.character(10:61)))
 ```
+```{r}
+exb_max = data_long %>%
+  filter(name == "Total_length_gt_0_bp",category == "EXB") %>%
+  pull(value) %>%
+  max()
+```
+
 ```{r,fig.height=5, fig.width=1.5}
 data_long$depth_cm <- as.numeric(sub("TDM0*", "", data_long$sample))
-p1= data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='TDM',] %>% 
-  ggplot(aes(y=depth_cm-0.5, x=value))+
-   geom_segment( aes(y=depth_cm-0.5, yend=depth_cm-0.5, x=data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='EXB',]$value %>% max(), xend=value), color="grey40") +
+plottable=data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='TDM',]
+p1=ggplot(plottable,aes(y=depth_cm-0.5, x=value))+
+   geom_segment( aes(y=depth_cm-0.5, yend=depth_cm-0.5, x=name, xend=value), color="grey40") +
   geom_point( color="grey40", size=1.5)+
-  geom_vline(xintercept = data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='EXB',]$value %>% max(), color='darkred')+
+  geom_vline(xintercept = exb_max, color='darkred')+
    scale_y_reverse( breaks = seq(1, 61, 1), labels=ifelse(1:61 %% 5 == 0, 1:61, ""), limits = c(61,-3),expand = c(0, 0))+
   theme_classic(base_size = 9)+
   theme(axis.text.x = element_text(angle = 30, vjust = 0.8, hjust = 1), 
@@ -98,9 +105,9 @@ saveRDS(p1, '../../06_figures/Fig1/F.rds')
 ```{r, fig.height=2.5, fig.width=1.2}
 p2=data_long[data_long$name %in% c('L50') & data_long$category=='TDM',] %>% ggplot(aes(x=category, y=value))+
   geom_boxplot()+
-  geom_jitter(width=0.5, color='gray40', size=1)+
+  geom_jitter(width=0.5, color='gray40', size=1, alpha=0.5)+
   theme_bw(base_size = 9)+
-  xlab('L50\n(#contigs)')+
+  xlab(expression(atop(italic(L) * "50 (bp)", "(#contigs)"))) +
   ylab('')+
   theme(axis.text.x = element_blank())
 p2
@@ -111,14 +118,23 @@ saveRDS(p2, '../../06_figures/Fig1/G.rds')
 ```{r, fig.height=2.5, fig.width=1.2}
 p3=data_long[data_long$name %in% c('N50') & data_long$category=='TDM',] %>% ggplot(aes(x=category, y=value))+
   geom_boxplot()+
-  geom_jitter(width=0.5 , color='gray40', size=1)+
+  geom_jitter(width=0.5 , color='gray40', size=1,alpha=0.5)+
   theme_bw(base_size = 9)+
-  xlab('N50 (bp)')+
+  xlab(expression(italic(N) * "50 (bp)"))+
   ylab('')+
   theme(axis.text.x = element_blank())
 p3 
 
 saveRDS(p3, '../../06_figures/Fig1/H.rds')
 ```
+```{r}
+write.table(data_long[data_long$name %in% c( "Total_length_gt_0_bp"  ) & data_long$category=='TDM',], '../../07_output_tables/Fig1F_source.txt', quote = F, row.names = F)
+```
 
+```{r}
+write.table(data_long[data_long$name %in% c('N50') & data_long$category=='TDM',], '../../07_output_tables/Fig1H_source.txt', quote = F, row.names = F)
+```
 
+```{r}
+write.table(data_long[data_long$name %in% c('L50') & data_long$category=='TDM',], '../../07_output_tables/Fig1G_source.txt', quote = F, row.names = F)
+```
