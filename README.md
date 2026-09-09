@@ -5,7 +5,7 @@ Microbial DNA decay within stalagmites preserves a molecular record of time
 
 Authors: Lucia Winkler, Maxime Borry, Raphaela Stahl, Kathleen Johnson, Silvia Frisia, Kirsten Küsel, Christina Warinner
 
-Input data is deposited in the Zenodo records https://doi.org/10.5281/zenodo.18250603 (Stalagmite age model) and https://doi.org/10.5281/zenodo.18325996 (aDNA data). Raw reads are deposited in the NCBI SRA under the accession PRJNA1406495.
+Input data is deposited in the Zenodo records https://doi.org/10.5281/zenodo.18250603 (Stalagmite age model) and https://doi.org/10.5281/zenodo.18325996 (aDNA data). Raw reads are deposited in the NCBI SRA under the accession PRJNA1406495. Assemblies are deposited in the ENA unde the accession PRJEB125207.
 
 
 ## Stalagmite age model
