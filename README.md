@@ -1,7 +1,7 @@
 # aDNA damage along stalagmite TM-17
 In this repository we provide the code used to analyse the data leading to the manuscript
 
-Microbial DNA decay within stalagmites preserves a molecular record of time
+**Microbial DNA decay within stalagmites preserves a molecular record of time**
 
 Authors: Lucia Winkler, Maxime Borry, Raphaela Stahl, Kathleen Johnson, Silvia Frisia, Kirsten Küsel, Christina Warinner
 
